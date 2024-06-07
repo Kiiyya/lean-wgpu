@@ -14,15 +14,16 @@ def test (x : UInt32) : IO UInt32 := {
 }
 
 alloy c extern
-def helloworld (n : UInt32) : IO UInt64 := {
+def helloworld (n : UInt32) : IO UInt32 := {
   -- We create a descriptor
-  -- WGPUInstanceDescriptor desc = {};
-  -- desc.nextInChain = NULL;
+  WGPUInstanceDescriptor desc = {};
+  desc.nextInChain = NULL;
 
   -- Comment the following three lines out to make it build just fine:
-  -- WGPUInstance inst = wgpuCreateInstance(&desc);
-  -- if (!inst) { return lean_io_result_mk_error(lean_box(1)); }
-  -- wgpuInstanceRelease(inst);
+  WGPUInstance inst = wgpuCreateInstance(&desc);
+  if (!inst) { return lean_io_result_mk_error(lean_box(1)); }
+  wgpuInstanceRelease(inst);
 
-  return lean_io_result_mk_ok(lean_box(0));
+  uint32_t p = (uint32_t) inst;
+  return lean_io_result_mk_ok(lean_box(p));
 }

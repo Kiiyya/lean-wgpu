@@ -5,4 +5,4 @@ def main : IO Unit := do
   IO.println s!"{res}"
 
 #eval test 0 -- this works, prints `8`.
--- #eval main -- crashes the LSP server somehow?
+#eval main -- crashes the LSP server somehow?
