@@ -10,3 +10,4 @@ Helpful resources for dealing with FFI (only relevant if you want to dev these b
 - "S" Example
   - Original: https://github.com/leanprover/lean4/tree/b278a20ac22adcbfde11db386f2dc874d4a215ad/tests/compiler/foreign
   - Alloy adaptation: https://github.com/tydeu/lean4-alloy/blob/master/examples/S/S.lean
+- WebGPU Guide. For C++, but explains concepts well, and... just adapt it to C: https://eliemichel.github.io/LearnWebGPU/getting-started/opening-a-window.html
