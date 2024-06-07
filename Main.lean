@@ -1,6 +1,7 @@
 import Wgpu
 
-def main : IO Unit :=
-  IO.println s!"Size of WGPUInstance: {rawrr 0}"
+def main : IO Unit := do
+  let res <- test 0
+  IO.println s!"{res}"
 
 #eval main
