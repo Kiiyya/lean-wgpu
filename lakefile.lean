@@ -31,4 +31,9 @@ lean_lib Wgpu where
     else #[Module.oNoExportFacet, `alloy.c.o.noexport]
 
 lean_exe helloworld where
+  moreLinkArgs := #[
+    "-framework", "Metal",
+    "-framework", "QuartzCore",
+    "-framework", "CoreFoundation"
+  ]
   root := `Main
