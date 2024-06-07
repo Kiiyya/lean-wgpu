@@ -3,11 +3,10 @@ open Lake DSL
 
 package Wgpu
 
--- require batteries from git "https://github.com/leanprover-community/batteries" @ "main"
--- require socket from git "https://github.com/hargoniX/socket.lean.git" @ "main"
 require alloy from git "https://github.com/tydeu/lean4-alloy/" @ "master"
 
-def wgpu_native_dir := "wgpu-macos-aarch64-release"
+-- TODO: download from github releases automatically.
+def wgpu_native_dir := "wgpu-macos-aarch64-debug"
 
 extern_lib wgpu_native pkg :=
    inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
@@ -22,15 +21,13 @@ lean_lib Wgpu where
     -- These three commented-out lines don't seem necessary for some reason?
     -- s!"-L{__dir__ / wgpu_native_dir |>.toString}",
     -- "-lwgpu_native",
-    -- s!"--load-dynlib={__dir__ / wgpu_native_dir / nameToSharedLib "wgpu_native" |>.toString}"
-    "-I", __dir__ / wgpu_native_dir |>.toString -- but this one is necessary
+    -- s!"--load-dynlib={__dir__ / wgpu_native_dir / nameToSharedLib "wgpu_native" |>.toString}",
+    "-I", __dir__ / wgpu_native_dir |>.toString -- but this one is necessary, I assume because of alloy
   ]
   precompileModules := true
   nativeFacets := fun shouldExport =>
-    if shouldExport then
-      #[Module.oExportFacet, `alloy.c.o.export]
-    else
-      #[Module.oNoExportFacet, `alloy.c.o.noexport]
+    if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
+    else #[Module.oNoExportFacet, `alloy.c.o.noexport]
 
 lean_exe helloworld where
   root := `Main

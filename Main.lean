@@ -1,7 +1,8 @@
 import Wgpu
 
 def main : IO Unit := do
-  let res <- test 0
+  let res <- helloworld 0
   IO.println s!"{res}"
 
-#eval main
+#eval test 0 -- this works, prints `8`.
+-- #eval main -- crashes the LSP server somehow?
