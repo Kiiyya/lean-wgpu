@@ -6,6 +6,7 @@ package Wgpu
 require alloy from git "https://github.com/tydeu/lean4-alloy/" @ "master"
 
 -- TODO: download from github releases automatically.
+-- https://github.com/gfx-rs/wgpu-native/releases
 def wgpu_native_dir := "wgpu-macos-aarch64-debug"
 
 extern_lib wgpu_native pkg :=
@@ -22,7 +23,7 @@ lean_lib Wgpu where
     -- s!"-L{__dir__ / wgpu_native_dir |>.toString}",
     -- "-lwgpu_native",
     -- s!"--load-dynlib={__dir__ / wgpu_native_dir / nameToSharedLib "wgpu_native" |>.toString}",
-    "-I", __dir__ / wgpu_native_dir |>.toString -- but this one is necessary, I assume because of alloy
+    "-I", __dir__ / wgpu_native_dir |>.toString
   ]
   precompileModules := true
   nativeFacets := fun shouldExport =>
