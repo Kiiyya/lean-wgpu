@@ -1,3 +1,5 @@
 /.lake
 /wgpu-macos-aarch64-release
 /wgpu-macos-aarch64-debug
+/wgpu-linux-x86_64-release
+/wgpu-linux-x86-64-debug

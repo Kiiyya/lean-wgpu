@@ -7,7 +7,7 @@ require alloy from git "https://github.com/tydeu/lean4-alloy/" @ "master"
 
 -- TODO: download from github releases automatically.
 -- https://github.com/gfx-rs/wgpu-native/releases
-def wgpu_native_dir := "wgpu-macos-aarch64-debug"
+def wgpu_native_dir := "wgpu-linux-x86_64-release"
 
 extern_lib wgpu_native pkg :=
    inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
@@ -18,7 +18,14 @@ module_data alloy.c.o.noexport : BuildJob FilePath
 
 @[default_target]
 lean_lib Wgpu where
+  moreLeancArgs := #[
+    "-fPIC"
+  ]
+  weakLinkArgs := #[
+    "-fPIC"
+  ]
   weakLeancArgs := #[
+    "-fPIC",
     -- These three commented-out lines don't seem necessary for some reason?
     -- s!"-L{__dir__ / wgpu_native_dir |>.toString}",
     -- "-lwgpu_native",
@@ -34,6 +41,8 @@ lean_exe helloworld where
   moreLinkArgs := #[
     "-framework", "Metal",
     "-framework", "QuartzCore",
-    "-framework", "CoreFoundation"
-  ]
+    "-framework", "CoreFoundation"]
+  root := `Main
+
+lean_exe helloworld_win where
   root := `Main
