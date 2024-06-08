@@ -7,7 +7,7 @@ require alloy from git "https://github.com/tydeu/lean4-alloy/" @ "master"
 
 -- TODO: download from github releases automatically.
 -- https://github.com/gfx-rs/wgpu-native/releases
-def wgpu_native_dir := "wgpu-macos-aarch64-debug"
+def wgpu_native_dir := "libs/wgpu-macos-aarch64-debug"
 
 extern_lib wgpu_native pkg :=
    inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
