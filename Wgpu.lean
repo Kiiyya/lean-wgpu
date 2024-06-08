@@ -64,7 +64,7 @@ alloy c section
   }
 end
 
-alloy c extern
+alloy c extern "WGPUAdapter_mk"
 def WGPUAdapter.mk (l_inst : WGPUInstance) : IO WGPUAdapter := {
   WGPUInstance *inst = of_lean<WGPUInstance>(l_inst);
   WGPURequestAdapterOptions adapterOpts = {};
@@ -84,9 +84,22 @@ def WGPUAdapter.mk (l_inst : WGPUInstance) : IO WGPUAdapter := {
   return lean_io_result_mk_ok(to_lean<WGPUAdapter>(a));
 }
 
+alloy c extern
+def rawr (l_adapter : WGPUAdapter) : IO Unit := {
+  WGPUSupportedLimits supportedLimits = {};
+  supportedLimits.nextInChain = NULL;
+  bool success = wgpuAdapterGetLimits(*of_lean<WGPUAdapter>(l_adapter), &supportedLimits);
+  if (success) {
+      fprintf(stderr, "Adapter limits:\n");
+      fprintf(stderr, "  maxTextureDimension1D: %d\n", supportedLimits.limits.maxTextureDimension1D);
+      fprintf(stderr, "  maxTextureDimension2D: %d\n", supportedLimits.limits.maxTextureDimension2D);
+  }
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
 set_option linter.unusedVariables false in
-def triangle (_ : UInt32) : IO UInt32 := do
+def triangle : IO Unit := do
   let desc <- WGPUInstanceDescriptor.mk
   let inst <- WGPUInstance.mk desc
   let adapter <- WGPUAdapter.mk inst
-  return 0
+  rawr adapter
