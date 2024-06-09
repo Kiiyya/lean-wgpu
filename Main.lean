@@ -1,7 +1,7 @@
 import Wgpu
+import Wgpu.PromiseIssues
 
--- #check Task
--- #check IO.Promise
+open IO
 
 def main : IO Unit := do
   triangle
