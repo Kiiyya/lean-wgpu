@@ -47,6 +47,7 @@ section Glfw
     | _ => panic! "Unsupported arch/os combination"
   def glfw_include_path : String := glfw_path ++ "/include"
   def glfw_library_path : String := glfw_path ++ "/lib"
+  #eval glfw_include_path
 
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
   lean_lib Glfw where
@@ -81,6 +82,7 @@ lean_lib Wgpu where
     "-fPIC"
   ]
   weakLeancArgs := #[
+    "-I", glfw_include_path,
     "-I", __dir__ / wgpu_native_dir |>.toString
   ]
   precompileModules := true
