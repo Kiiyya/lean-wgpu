@@ -1,3 +1,4 @@
+import Glfw
 import Alloy.C
 open scoped Alloy.C
 
@@ -107,3 +108,8 @@ def triangle : IO Unit := do
   let inst <- WGPUInstance.mk desc
   let adapter <- WGPUAdapter.mk inst
   rawr adapter
+  let window ← GLFWwindow.mk 640 480
+  while not (← window.shouldClose) do
+    println! "polling"
+    GLFW.pollEvents
+  return

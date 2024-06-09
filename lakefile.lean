@@ -66,6 +66,15 @@ run_cmd do
 module_data alloy.c.o.export : BuildJob FilePath
 module_data alloy.c.o.noexport : BuildJob FilePath
 
+lean_lib Glfw where
+  moreLeancArgs := #[
+    "-fPIC"
+  ]
+  precompileModules := true
+  nativeFacets := fun shouldExport =>
+    if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
+    else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+
 @[default_target]
 lean_lib Wgpu where
   moreLeancArgs := #[
