@@ -1,6 +1,8 @@
 import Wgpu
 import Glfw
 
+open Wgpu
+
 def main : IO Unit := do
   triangle
   IO.eprintln s!"done"
