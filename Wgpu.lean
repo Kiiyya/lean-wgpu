@@ -6,6 +6,7 @@ alloy c section
   #include <lean/lean.h>
   #include <wgpu.h>
   #include <webgpu.h>
+  #include <GLFW/glfw3.h>
 end
 
 alloy c extern
@@ -35,6 +36,12 @@ alloy c opaque_extern_type WGPUDevice => WGPUDevice where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUDevice\n");
     wgpuDeviceRelease(*ptr);
+    free(ptr);
+
+alloy c opaque_extern_type WGPUQueue => WGPUQueue where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUQueue \n");
+    wgpuQueueRelease(*ptr);
     free(ptr);
 
 alloy c extern "WGPUInstanceDescriptor_mk"
@@ -171,6 +178,21 @@ def WGPUDevice.inspect(l_device : WGPUDevice): IO Unit := {
         {{}}
     }
 }
+
+alloy c extern
+def WGPUQueue.mk (l_device : WGPUDevice) : WGPUQueue := {
+  WGPUDevice *device = of_lean<WGPUDevice>(l_device);
+  WGPUQueue *queue = malloc(sizeof(WGPUQueue));
+  *queue = wgpuDeviceGetQueue(*device);
+  return to_lean<WGPUQueue>(queue);
+}
+
+alloy c extern
+def WGPUQueue.release (l_queue : WGPUQueue) : IO Unit := {
+   WGPUQueue *queue = of_lean<WGPUQueue>(l_queue);
+   wgpuQueueRelease(*queue);
+}
+
 
 set_option linter.unusedVariables false in
 def triangle (_ : UInt32) : IO UInt32 := do
