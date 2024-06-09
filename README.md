@@ -11,3 +11,14 @@ Helpful resources for dealing with FFI (only relevant if you want to dev these b
   - Original: https://github.com/leanprover/lean4/tree/b278a20ac22adcbfde11db386f2dc874d4a215ad/tests/compiler/foreign
   - Alloy adaptation: https://github.com/tydeu/lean4-alloy/blob/master/examples/S/S.lean
 - WebGPU Guide. For C++, but explains concepts well, and... just adapt it to C: https://eliemichel.github.io/LearnWebGPU/getting-started/opening-a-window.html
+
+## Things you need to download/install yourself
+
+Currently, you need to [download the **wgpu_native** release from github releases](https://github.com/gfx-rs/wgpu-native/releases) and put it in a folder in the repo root. Might have to adjust `wgpu_native_dir` in the lakefile yourself currently.
+
+You need to install **glfw**, ideally via your system package manager.
+- macOS: `brew install glfw`, then `brew --prefix glfw` should print something like `/opt/homebrew/opt/glfw`.
+- Linux: (Add info here)
+- Windows: (Add info here)
+
+
