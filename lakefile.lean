@@ -72,7 +72,6 @@ lean_lib Wgpu where
     "-fPIC"
   ]
   weakLeancArgs := #[
-    "-lglfw3",
     -- These three commented-out lines don't seem necessary for some reason?
     -- s!"-L{__dir__ / wgpu_native_dir |>.toString}",
     -- "-lwgpu_native",
@@ -92,5 +91,5 @@ lean_exe helloworld where
         "-framework", "Metal",
         "-framework", "QuartzCore",
         "-framework", "CoreFoundation"]
-      else #[]
+      else #["-lglfw"]
   root := `Main
