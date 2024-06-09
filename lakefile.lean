@@ -34,13 +34,13 @@ section Platform
 end Platform
 
 -- TODO: download wgpu and glfw automatically.
-
 -- # wgpu_native
 -- Download manually from: https://github.com/gfx-rs/wgpu-native/releases
 def wgpu_native_dir :=
   let s :=
     match (getOS, getArch) with
     | (.macos, .arm64) => "wgpu-macos-aarch64"
+    | (.linux, .x86_64) => "wgpu-linux-x86_64"
     | _ => panic! "Unsupported arch/os combination"
   s!"libs/{s}-debug"
 
@@ -54,16 +54,25 @@ extern_lib wgpu_native pkg :=
 -- ! The GLFW binaries come with `libglfw3.a` and `libglfw.3.dylib`, note the extra `.` here. This confuses lake.
 -- ! You need to rename (symlink is insufficient) it to `libglfw3.dylib`. Might differ for linux/windows.
 def glfw_dir := "libs/glfw-3.4.bin.MACOS"
-extern_lib glfw pkg :=
-  -- ! Okay, no clue why glfw works with the shared lib, but not static lib /shrug.
-  inputFile <| pkg.dir / glfw_dir / "lib-arm64" / nameToSharedLib "glfw.3"
+run_cmd do
+  if getOS != .linux then
+    let stx ← `(
+      extern_lib glfw pkg := do
+        -- ! Okay, no clue why glfw works with the shared lib, but not static lib /shrug.
+          inputFile <| pkg.dir / glfw_dir / "lib-arm64" / nameToSharedLib "glfw.3"
+    )
+    Lean.Elab.Command.elabCommand stx
 
 module_data alloy.c.o.export : BuildJob FilePath
 module_data alloy.c.o.noexport : BuildJob FilePath
 
 @[default_target]
 lean_lib Wgpu where
+  moreLeancArgs := #[
+    "-fPIC"
+  ]
   weakLeancArgs := #[
+    "-lglfw3",
     -- These three commented-out lines don't seem necessary for some reason?
     -- s!"-L{__dir__ / wgpu_native_dir |>.toString}",
     -- "-lwgpu_native",

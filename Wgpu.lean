@@ -6,6 +6,7 @@ alloy c section
   #include <lean/lean.h>
   #include <wgpu.h>
   #include <webgpu.h>
+  #include <GLFW/glfw3.h>
 end
 
 alloy c extern
@@ -86,6 +87,8 @@ def WGPUAdapter.mk (l_inst : WGPUInstance) : IO WGPUAdapter := {
 
 alloy c extern
 def rawr (l_adapter : WGPUAdapter) : IO Unit := {
+  glfwInit();
+  glfwTerminate();
   WGPUSupportedLimits supportedLimits = {};
   supportedLimits.nextInChain = NULL;
   bool success = wgpuAdapterGetLimits(*of_lean<WGPUAdapter>(l_adapter), &supportedLimits);
@@ -96,6 +99,7 @@ def rawr (l_adapter : WGPUAdapter) : IO Unit := {
   }
   return lean_io_result_mk_ok(lean_box(0));
 }
+
 
 set_option linter.unusedVariables false in
 def triangle : IO Unit := do
