@@ -1,5 +1,4 @@
 import Wgpu
-import Wgpu.PromiseIssues
 
 open IO
 
