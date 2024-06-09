@@ -17,7 +17,7 @@ alloy c opaque_extern_type GLFWwindow => GLFWwindow where
 -- TODO add `GLFWmonitor` and `GLFWwindow`
 /-(title : String)-/
 alloy c extern
-def GLFWwindow.mk (width height: UInt32) : IO GLFWwindow := {
+def GLFWwindow.mk (width height : UInt32) : IO GLFWwindow := {
   fprintf(stderr, "mk GLFWwindow\n");
   if (!glfwInit()) {
     return lean_mk_io_user_error(lean_mk_string("Could not initialize GLFW!\n"));
@@ -37,4 +37,5 @@ def GLFWwindow.shouldClose (l_window : GLFWwindow) : IO Bool := {
 alloy c extern
 def GLFW.pollEvents : IO Unit := {
   glfwPollEvents();
+  return lean_io_result_mk_ok(lean_box(0));
 }

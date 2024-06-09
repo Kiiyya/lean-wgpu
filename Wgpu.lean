@@ -55,6 +55,20 @@ alloy c section
   -- hacky. Copied from the compiled output from lean runtime
   extern lean_object* lean_io_promise_new(lean_object* seemsNotUsed);
   extern lean_object* lean_io_promise_resolve(lean_object* value, lean_object* promise, lean_object* seemsNotUsed);
+
+  lean_task_object *promise_mk() {
+    lean_object *io_res = lean_io_promise_new(lean_io_mk_world());
+    if (!lean_io_result_is_ok(io_res)) {
+      fprintf(stderr, "Failed to create promise\n");
+      abort();
+    }
+    lean_task_object *promise = lean_to_task(lean_io_result_get_value(io_res));
+    return promise;
+  }
+
+  void promise_resolve(lean_task_object *promise, lean_object *value) {
+    lean_io_promise_resolve(value, (lean_object*)promise, lean_io_mk_world());
+  }
 end
 
 alloy c section
@@ -63,10 +77,7 @@ alloy c section
       WGPUAdapter *a = (WGPUAdapter*)malloc(sizeof(WGPUAdapter));
       *a = adapter;
       lean_object* l_adapter = to_lean<WGPUAdapter>(a);
-      -- fprintf(stderr, "onAdapterRequestEnded 1\n");
-
-      lean_io_promise_resolve(l_adapter, (lean_object*)promise, NULL);
-      -- fprintf(stderr, "onAdapterRequestEnded 2\n");
+      promise_resolve((lean_task_object*) promise, l_adapter);
     } else {
       fprintf(stderr, "Could not get WebGPU adapter: %s\n", message);
     }
@@ -78,13 +89,7 @@ def WGPUAdapter.mk (l_inst : WGPUInstance) : IO (Promise WGPUAdapter) := {
   WGPUInstance *inst = of_lean<WGPUInstance>(l_inst);
   WGPURequestAdapterOptions adapterOpts = {};
 
-  lean_object *io_res = lean_io_promise_new(NULL);
-  if (!lean_io_result_is_ok(io_res)) {
-    fprintf(stderr, "Failed to create promise\n");
-    abort();
-  }
-  lean_task_object *promise = lean_to_task(lean_io_result_get_value(io_res));
-
+  lean_task_object *promise = promise_mk();
   -- Note that the adapter maintains an internal (wgpu) reference to the WGPUInstance, according to the C++ guide: "We will no longer need to use the instance once we have selected our adapter, so we can call wgpuInstanceRelease(instance) right after the adapter request instead of at the very end. The underlying instance object will keep on living until the adapter gets released but we do not need to manager this."
   wgpuInstanceRequestAdapter(
       *inst,
@@ -92,7 +97,6 @@ def WGPUAdapter.mk (l_inst : WGPUInstance) : IO (Promise WGPUAdapter) := {
       onAdapterRequestEnded,
       (void*)promise
   );
-
   return lean_io_result_mk_ok((lean_object*) promise);
 }
 
@@ -112,7 +116,7 @@ def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {
 alloy c extern
 def glfw_playground : IO Unit := {
   glfwInit();
-  glfwTerminate();
+  return lean_io_result_mk_ok(lean_box(0));
 }
 
 set_option linter.unusedVariables false in
