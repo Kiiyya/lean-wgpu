@@ -235,12 +235,56 @@ alloy c extern def Device.setUncapturedErrorCallback
   : IO Unit :=
 {
   WGPUDevice *device = of_lean<Device>(l_device);
-  lean_inc(onDeviceError); -- TODO Not sure if we need this, but if yes: When does it get decremented? ==> Memory leak!
+  lean_inc(onDeviceError); -- ! Memory leak
   wgpuDeviceSetUncapturedErrorCallback(*device, onDeviceUncapturedErrorCallback, onDeviceError);
   return lean_io_result_mk_ok(lean_box(0));
 }
 
-/- # Command Queue -/
+/- # Command -/
+
+alloy c opaque_extern_type Command => WGPUCommandBuffer where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUCommandBuffer\n");
+    free(ptr);
+
+
+/- ## CommandEncoder -/
+
+alloy c opaque_extern_type CommandEncoder => WGPUCommandEncoder where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUCommandEncoder\n");
+    wgpuCommandEncoderRelease(*ptr);
+    free(ptr);
+
+alloy c extern def Device.createCommandEncoder (device : Device) : IO CommandEncoder := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPUCommandEncoderDescriptor encoderDesc = {};
+  encoderDesc.nextInChain = NULL;
+  encoderDesc.label = "My command encoder";
+  WGPUCommandEncoder *encoder = malloc(sizeof(WGPUCommandEncoder));
+  *encoder = wgpuDeviceCreateCommandEncoder(*c_device, &encoderDesc);
+  return lean_io_result_mk_ok(to_lean<CommandEncoder>(encoder));
+}
+
+alloy c extern def CommandEncoder.insertDebugMarker (encoder : CommandEncoder) (s : String) : IO Unit := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+  lean_inc(s); -- ! Memory leak
+  wgpuCommandEncoderInsertDebugMarker(*c_encoder, lean_string_cstr(s));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern def CommandEncoder.finish (encoder : CommandEncoder) : IO Command := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+  WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
+  cmdBufferDescriptor.nextInChain = NULL;
+  cmdBufferDescriptor.label = "Command buffer";
+  WGPUCommandBuffer *command = malloc(sizeof(WGPUCommandBuffer));
+  *command = wgpuCommandEncoderFinish(*c_encoder, &cmdBufferDescriptor);
+  -- wgpuCommandEncoderRelease(encoder); we shouldn't release it here because it'll get released later via lean's refcounting
+  return lean_io_result_mk_ok(to_lean<Command>(command));
+}
+
+/- # Queue -/
 
 alloy c opaque_extern_type Queue => WGPUQueue where
   finalize(ptr) :=
@@ -256,19 +300,32 @@ alloy c extern def Device.getQueue (device : Device) : IO Queue := {
   return lean_io_result_mk_ok(queue);
 }
 
+alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO Unit := {
+  WGPUQueue *c_queue = of_lean<Queue>(queue);
+  if (lean_obj_tag(commands) != LeanArray) { -- there are three different kinds of array: LeanArray, LeanScalarArray, LeanStructArray
+    fprintf(stderr, "error: commands tag is %d, but expected %d", lean_obj_tag(commands), LeanArray);
+    abort();
+  }
+  size_t n = lean_array_size(commands);
+
+  -- Convert LeanArray to LeanScalarArray
+  -- lean_object *commands_s = lean_alloc_sarray(sizeof(WGPUCommandBuffer), n, n);
+  -- WGPUCommandBuffer* arr = lean_sarray_cptr(commands_s);
+
+  -- Copy each command lean object (they're pointers, so not super heavy) into a continuous C array of wgpu commands.
+  WGPUCommandBuffer* arr = malloc(sizeof(WGPUCommandBuffer) * n);
+  for (size_t i = 0; i < n; i++) {
+    lean_object *command = lean_array_uget(commands, i);
+    WGPUCommandBuffer *c_command = of_lean<Command>(command);
+    arr[i] = *c_command;
+  }
+
+  wgpuQueueSubmit(*c_queue, n, arr);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
 -- TODO: wgpuQueueOnSubmittedWorkDone (skipped because I'm lazy)
 
--- alloy c opaque_scalar_type Command => WGPUCommandBuffer where
---   finalize(ptr) :=
---     fprintf(stderr, "finalize WGPUCommandBuffer\n");
---     free(ptr);
-
--- alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO Unit := {
--- }
-
-structure Command where
-
-#check Alloy.C.Translator
 
 alloy c extern
 def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {

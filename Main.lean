@@ -18,6 +18,10 @@ def triangle : IO Unit := do
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
   let queue : Queue <- device.getQueue
+  let encoder <- device.createCommandEncoder
+  encoder.insertDebugMarker "rawr"
+  let command <- encoder.finish
+  queue.submit #[command]
 
   wgpu_playground adapter
   sleep 100
