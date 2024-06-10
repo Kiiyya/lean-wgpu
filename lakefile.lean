@@ -124,6 +124,9 @@ lean_exe helloworld where
         "-framework", "QuartzCore", -- for wgpu
         "-framework", "CoreFoundation" -- for wgpu
       ]
-      else #["-lglfw"]
+      else #[
+        "./glfw3webgpu/glfw3webgpu.o",
+        "-lglfw"
+      ]
   root := `Main
   extraDepTargets := #[`glfw3webgpu]
