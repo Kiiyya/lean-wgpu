@@ -1,6 +1,4 @@
 
-inductive Device
-
 /- # Async
   Like Task, but `Task.get` is only allowed to be called from IO.
 -/

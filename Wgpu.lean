@@ -35,6 +35,8 @@ alloy c section
   }
 end
 
+/- # Instance -/
+
 alloy c opaque_extern_type InstanceDescriptor => WGPUInstanceDescriptor where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUInstanceDescriptor\n");
@@ -46,12 +48,6 @@ alloy c opaque_extern_type Instance => WGPUInstance where
     wgpuInstanceRelease(*ptr);
     free(ptr);
 
-alloy c opaque_extern_type Adapter => WGPUAdapter where
-  finalize(ptr) :=
-    fprintf(stderr, "finalize WGPUAdapter\n");
-    wgpuAdapterRelease(*ptr);
-    free(ptr);
-
 alloy c extern
 def InstanceDescriptor.mk : IO InstanceDescriptor := {
   fprintf(stderr, "mk WGPUInstanceDescriptor\n");
@@ -61,8 +57,6 @@ def InstanceDescriptor.mk : IO InstanceDescriptor := {
   return lean_io_result_mk_ok(to_lean<InstanceDescriptor>(desc));
 }
 
--- instance : Inhabited InstanceDescriptor where default := .mk
-
 alloy c extern
 def createInstance (desc : InstanceDescriptor) : IO Instance := {
   fprintf(stderr, "mk WGPUInstance\n");
@@ -70,6 +64,14 @@ def createInstance (desc : InstanceDescriptor) : IO Instance := {
   *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc)); -- ! RealWorld
   return lean_io_result_mk_ok(to_lean<Instance>(inst));
 }
+
+/- # Adapter -/
+
+alloy c opaque_extern_type Adapter => WGPUAdapter where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUAdapter\n");
+    wgpuAdapterRelease(*ptr);
+    free(ptr);
 
 alloy c section
   void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void* promise) {
@@ -87,7 +89,6 @@ alloy c section
 end
 
 alloy c extern
--- def WGPUAdapter.mk (l_inst : WGPUInstance) : IO (Promise (EStateM.Result IO.Error IO.RealWorld WGPUAdapter)) := {
 def Instance.requestAdapter (l_inst : Instance) : IO (A (Result Adapter)) := {
   WGPUInstance *inst = of_lean<Instance>(l_inst);
   WGPURequestAdapterOptions adapterOpts = {};
@@ -102,6 +103,89 @@ def Instance.requestAdapter (l_inst : Instance) : IO (A (Result Adapter)) := {
   );
   return lean_io_result_mk_ok((lean_object*) promise);
 }
+
+/- # Device
+  https://eliemichel.github.io/LearnWebGPU/getting-started/adapter-and-device/the-device.html#the-device
+-/
+
+/- ## Device Descriptor -/
+
+alloy c section
+  typedef struct {
+    WGPUDeviceDescriptor desc;
+    lean_string_object *l_label; -- need this to decrement the refcount on finalize
+  } LWGPUDeviceDescriptor;
+end
+
+/--
+```c
+  typedef struct WGPUDeviceDescriptor {
+    WGPUChainedStruct const * nextInChain;
+    WGPU_NULLABLE char const * label;
+    size_t requiredFeatureCount;
+    WGPUFeatureName const * requiredFeatures;
+    WGPU_NULLABLE WGPURequiredLimits const * requiredLimits;
+    WGPUQueueDescriptor defaultQueue;
+    WGPUDeviceLostCallback deviceLostCallback;
+    void * deviceLostUserdata;
+  } WGPUDeviceDescriptor;
+```
+-/
+alloy c opaque_extern_type DeviceDescriptor => LWGPUDeviceDescriptor where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUDeviceDescriptor\n");
+    lean_dec((lean_object*) ptr->l_label);
+    free(ptr);
+
+alloy c extern def DeviceDescriptor.mk (l_label : String) : IO DeviceDescriptor := {
+  fprintf(stderr, "mk WGPUDeviceDescriptor\n");
+  LWGPUDeviceDescriptor *desc = malloc(sizeof(LWGPUDeviceDescriptor));
+  desc->desc.nextInChain = NULL;
+
+  lean_inc(l_label); -- * increase refcount of string ==> need to dec in finalizer
+  desc->desc.label = lean_string_cstr(l_label);
+  desc->l_label = (lean_string_object *) l_label;
+
+  return lean_io_result_mk_ok(to_lean<DeviceDescriptor>(desc));
+}
+
+/- ## Device itself -/
+
+alloy c opaque_extern_type Device => WGPUDevice where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUDevice\n");
+    free(ptr);
+
+alloy c section
+  void onAdapterRequestDeviceEnded(WGPURequestDeviceStatus status, WGPUDevice device, char const *message, void *promise) {
+    if (status == WGPURequestDeviceStatus_Success) {
+      WGPUDevice *d = malloc(sizeof(WGPUDevice));
+      *d = device;
+      lean_object* l_device = to_lean<Device>(d);
+      promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_device));
+    } else {
+      fprintf(stderr, "Could not get WebGPU device: %s\n", message);
+      promise_resolve((lean_task_object*) promise, lean_io_result_mk_error(lean_box(0)));
+    }
+  }
+end
+
+alloy c extern def Adapter.requestDevice (l_adapter : Adapter) (l_ddesc : DeviceDescriptor) : IO (A (Result Device)) := {
+  WGPUAdapter *adapter = of_lean<Adapter>(l_adapter);
+  LWGPUDeviceDescriptor *ddesc = of_lean<DeviceDescriptor>(l_ddesc);
+
+  lean_task_object *promise = promise_mk();
+  wgpuAdapterRequestDevice( -- ! RealWorld
+      *adapter,
+      &ddesc->desc,
+      onAdapterRequestDeviceEnded,
+      (void*)promise
+  );
+  return lean_io_result_mk_ok((lean_object*) promise);
+}
+
+
+
 
 alloy c extern
 def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {
@@ -121,16 +205,3 @@ def glfw_playground : IO Unit := {
   glfwInit();
   return lean_io_result_mk_ok(lean_box(0));
 }
-
-def triangle : IO Unit := do
-  let desc <- InstanceDescriptor.mk
-  let inst <- createInstance desc
-  let adapter <- inst.requestAdapter >>= await!
-  wgpu_playground adapter
-
-  -- glfw_playground
-  -- let window ← GLFWwindow.mk 640 480
-  -- while not (← window.shouldClose) do
-  --   println! "polling"
-  --   GLFW.pollEvents
-  -- return
