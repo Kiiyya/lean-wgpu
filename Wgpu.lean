@@ -213,6 +213,11 @@ alloy c extern def Adapter.requestDevice (l_adapter : Adapter) (l_ddesc : Device
   return lean_io_result_mk_ok((lean_object*) promise);
 }
 
+alloy c extern def Device.poll (device : Device) : IO Unit := {
+  wgpuDevicePoll(*of_lean<Device>(device), false, NULL);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
 /- ## Uncaptured Error Callback -/
 alloy c section
   void onDeviceUncapturedErrorCallback(WGPUErrorType type, char const* message, void* closure) {
@@ -353,11 +358,5 @@ def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {
       fprintf(stderr, "  maxTextureDimension1D: %d\n", supportedLimits.limits.maxTextureDimension1D);
       fprintf(stderr, "  maxTextureDimension2D: %d\n", supportedLimits.limits.maxTextureDimension2D);
   }
-  return lean_io_result_mk_ok(lean_box(0));
-}
-
-alloy c extern
-def glfw_playground : IO Unit := {
-  glfwInit();
   return lean_io_result_mk_ok(lean_box(0));
 }
