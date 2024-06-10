@@ -144,14 +144,14 @@ alloy c opaque_extern_type DeviceDescriptor => LWGPUDeviceDescriptor where
 
 alloy c section
   void onDeviceLostCallback(WGPUDeviceLostReason reason, char const* message, void* closure) {
-    fprintf(stderr, "onDeviceLostCallback");
+    fprintf(stderr, "onDeviceLostCallback\n");
     lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
     -- lean_object *l_reason = to_lean<DeviceLostReason>(reason);
     lean_object *l_message = lean_mk_string(message);
-    lean_object *res = lean_apply_1((lean_object *) l_closure, /- l_reason, -/ l_message);
+    lean_object *res = lean_apply_2((lean_object *) l_closure, /- l_reason, -/ l_message, lean_io_mk_world());
     if (!lean_io_result_is_ok(res)) {
       -- TODO: What if the closure itself errors?
-      fprintf(stderr, "onDeviceLost closure errored out!");
+      fprintf(stderr, "onDeviceLost closure errored out!\n");
       abort();
     }
   }
@@ -217,13 +217,13 @@ alloy c extern def Adapter.requestDevice (l_adapter : Adapter) (l_ddesc : Device
 /- ## Uncaptured Error Callback -/
 alloy c section
   void onDeviceUncapturedErrorCallback(WGPUErrorType type, char const* message, void* closure) {
-    fprintf(stderr, "onDeviceUncapturedErrorCallback");
+    fprintf(stderr, "onDeviceUncapturedErrorCallback\n");
     lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
     lean_object *l_message = lean_mk_string(message);
-    lean_object *res = lean_apply_2((lean_object *) l_closure, lean_box(type), l_message);
+    lean_object *res = lean_apply_3((lean_object *) l_closure, lean_box(type), l_message, lean_io_mk_world());
     if (!lean_io_result_is_ok(res)) {
       -- TODO: What if the closure itself errors?
-      fprintf(stderr, "onDeviceUncapturedErrorCallback closure errored out!");
+      fprintf(stderr, "onDeviceUncapturedErrorCallback closure errored out!\n");
       abort();
     }
   }
@@ -303,7 +303,7 @@ alloy c extern def Device.getQueue (device : Device) : IO Queue := {
 alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO Unit := {
   WGPUQueue *c_queue = of_lean<Queue>(queue);
   if (lean_obj_tag(commands) != LeanArray) { -- there are three different kinds of array: LeanArray, LeanScalarArray, LeanStructArray
-    fprintf(stderr, "error: commands tag is %d, but expected %d", lean_obj_tag(commands), LeanArray);
+    fprintf(stderr, "error: commands tag is %d, but expected %d\n", lean_obj_tag(commands), LeanArray);
     abort();
   }
   size_t n = lean_array_size(commands);
@@ -324,7 +324,25 @@ alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO 
   return lean_io_result_mk_ok(lean_box(0));
 }
 
--- TODO: wgpuQueueOnSubmittedWorkDone (skipped because I'm lazy)
+alloy c section
+  void onSubmittedWorkDoneCallback(WGPUQueueWorkDoneStatus status, void* closure) {
+    fprintf(stderr, "onSubmittedWorkDoneCallback\n");
+    lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
+    lean_object *res = lean_apply_2((lean_object *) l_closure, lean_box(status), lean_io_mk_world());
+    if (!lean_io_result_is_ok(res)) {
+      -- TODO: What if the closure itself errors?
+      fprintf(stderr, "onSubmittedWorkDoneCallback closure errored out! Tag is %d\n", lean_obj_tag(res));
+      abort();
+    }
+  }
+end
+
+alloy c extern def Queue.onSubmittedWorkDone (queue : Queue) (f : UInt32 -> IO Unit) : IO Unit := {
+  WGPUQueue *c_queue = of_lean<Queue>(queue);
+  lean_inc(f);
+  wgpuQueueOnSubmittedWorkDone(*c_queue, onSubmittedWorkDoneCallback, f);
+  return lean_io_result_mk_ok(lean_box(0));
+}
 
 
 alloy c extern

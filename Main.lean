@@ -18,6 +18,8 @@ def triangle : IO Unit := do
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
   let queue : Queue <- device.getQueue
+  queue.onSubmittedWorkDone fun status => do
+    eprintln s!"queue work done! status {status}"
   let encoder <- device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
   let command <- encoder.finish
