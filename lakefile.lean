@@ -38,22 +38,53 @@ end Platform
 module_data alloy.c.o.export : BuildJob FilePath
 module_data alloy.c.o.noexport : BuildJob FilePath
 
+-- TODO: download wgpu automatically.
+-- Download manually from: https://github.com/gfx-rs/wgpu-native/releases
+def wgpu_native_dir :=
+  let s :=
+    match (getOS, getArch) with
+    | (.macos, .arm64) => "wgpu-macos-aarch64"
+    | (.linux, .x86_64) => "wgpu-linux-x86_64"
+    | _ => panic! "Unsupported arch/os combination"
+  s!"libs/{s}-debug"
+
+/- GLFW is a cross-platform library for opening a window. -/
+def glfw_path : String :=
+  match (getOS, getArch) with
+  | (.macos, _) => (run_io (systemCommand "brew" #["--prefix", "glfw"])) -- returns for example "/opt/homebrew/opt/glfw"
+  | _ => panic! "Unsupported arch/os combination"
+def glfw_include_path : String := glfw_path ++ "/include"
+def glfw_library_path : String := glfw_path ++ "/lib"
+
+#check Lake.LeanLibConfig
+
+-- def buildC
+
+-- Inspiration from Utensil's repo, maybe you can run a script here directly, idk.
+target glfw3webgpu.o pkg : FilePath := do
+  let build := compileO
+    (__dir__ / "glfw3webgpu" / "glfw3webgpu.o")
+    (__dir__ / "glfw3webgpu" / "glfw3webgpu.c")
+    #["-x", "objective-c"]
+  Package.afterReleaseSync sorry
+  -- afterReleaseSync build
+  -- sorry
 
 section Glfw
-  /-! GLFW is a cross-platform library for opening a window. -/
-  def glfw_path : String :=
-    match (getOS, getArch) with
-    | (.macos, _) => (run_io (systemCommand "brew" #["--prefix", "glfw"])) -- returns for example "/opt/homebrew/opt/glfw"
-    | _ => panic! "Unsupported arch/os combination"
-  def glfw_include_path : String := glfw_path ++ "/include"
-  def glfw_library_path : String := glfw_path ++ "/lib"
-  #eval glfw_include_path
-
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
   lean_lib Glfw where
     moreLeancArgs := #[
+      "-x", "objective-c", -- macOS only.
+      "-I", __dir__ / wgpu_native_dir |>.toString,
+      "-I", __dir__ / "glfw3webgpu" |>.toString,
       "-I", glfw_include_path,
       "-fPIC"
+    ]
+    moreLinkArgs := #[
+      "-framework", "Cocoa",
+      "-framework", "CoreVideo",
+      "-framework", "IOKit",
+      "-framework", "QuartzCore"
     ]
     precompileModules := true
     nativeFacets := fun shouldExport =>
@@ -61,17 +92,16 @@ section Glfw
       else #[Module.oNoExportFacet, `alloy.c.o.noexport]
 end Glfw
 
+-- section GlfwWgpu
+--   /- WebGPU and GLFW are not aware of each other.
+--     We need to obtain a surface (the glfw window) for webgpu to draw on.
+--     This little library helps with that.  -/
+--   extern_lib GlfwWgpu :=
+--     compileO (__dir__ / "glfw3webgpu" / "glfw3webgpu.o") (__dir__ / "glfw3webgpu" / "glfw3webgpu.c")
+--     sorry
+-- end GlfwWgpu
 
 section wgpu_native
-  -- TODO: download wgpu automatically.
-  -- Download manually from: https://github.com/gfx-rs/wgpu-native/releases
-  def wgpu_native_dir :=
-    let s :=
-      match (getOS, getArch) with
-      | (.macos, .arm64) => "wgpu-macos-aarch64"
-      | (.linux, .x86_64) => "wgpu-linux-x86_64"
-      | _ => panic! "Unsupported arch/os combination"
-    s!"libs/{s}-debug"
 
   extern_lib wgpu_native pkg :=
     inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
