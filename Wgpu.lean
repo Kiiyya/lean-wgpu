@@ -170,6 +170,7 @@ alloy c extern def DeviceDescriptor.mk
   desc->desc.label = lean_string_cstr(l_label);
   desc->desc.defaultQueue.nextInChain = NULL;
   desc->desc.defaultQueue.label = "The default queue";
+  lean_inc(onDeviceLost); -- TODO Not sure if we need this, but if yes: When does it get decremented? ==> Memory leak!
   desc->desc.deviceLostCallback = onDeviceLostCallback; -- the C function, which then actually...
   desc->desc.deviceLostUserdata = onDeviceLost;         -- ...invokes this Lean closure :D
   desc->l_label = (lean_string_object *) l_label;
@@ -234,13 +235,44 @@ alloy c extern def Device.setUncapturedErrorCallback
   : IO Unit :=
 {
   WGPUDevice *device = of_lean<Device>(l_device);
+  lean_inc(onDeviceError); -- TODO Not sure if we need this, but if yes: When does it get decremented? ==> Memory leak!
   wgpuDeviceSetUncapturedErrorCallback(*device, onDeviceUncapturedErrorCallback, onDeviceError);
   return lean_io_result_mk_ok(lean_box(0));
 }
 
+/- # Command Queue -/
+
+alloy c opaque_extern_type Queue => WGPUQueue where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUQueue\n");
+    wgpuQueueRelease(*ptr);
+    free(ptr);
+
+alloy c extern def Device.getQueue (device : Device) : IO Queue := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPUQueue *c_queue = malloc(sizeof(WGPUQueue));
+  *c_queue = wgpuDeviceGetQueue(*c_device);
+  lean_object *queue = to_lean<Queue>(c_queue);
+  return lean_io_result_mk_ok(queue);
+}
+
+-- TODO: wgpuQueueOnSubmittedWorkDone (skipped because I'm lazy)
+
+-- alloy c opaque_scalar_type Command => WGPUCommandBuffer where
+--   finalize(ptr) :=
+--     fprintf(stderr, "finalize WGPUCommandBuffer\n");
+--     free(ptr);
+
+-- alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO Unit := {
+-- }
+
+structure Command where
+
+#check Alloy.C.Translator
 
 alloy c extern
 def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {
+  fprintf(stderr, "sizeof command: %lu\n", sizeof(WGPUCommandBuffer));
   WGPUSupportedLimits supportedLimits = {};
   supportedLimits.nextInChain = NULL;
   bool success = wgpuAdapterGetLimits(*of_lean<Adapter>(l_adapter), &supportedLimits);

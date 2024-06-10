@@ -15,9 +15,9 @@ def triangle : IO Unit := do
     eprintln s!"device was lost: {msg}"
     return pure ()
   let device : Device <- adapter.requestDevice ddesc >>= await!
-
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
+  let queue : Queue <- device.getQueue
 
   wgpu_playground adapter
   sleep 100
