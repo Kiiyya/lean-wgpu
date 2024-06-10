@@ -111,12 +111,14 @@ lean_lib Wgpu where
   nativeFacets := fun shouldExport =>
     if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
     else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+  extraDepTargets := #[`glfw3webgpu]
 
 @[default_target]
 lean_exe helloworld where
   moreLinkArgs :=
     if getOS == .macos
       then #[
+        "./glfw3webgpu/glfw3webgpu.o",
         s!"-L{glfw_library_path}", "-lglfw",
         "-framework", "Metal", -- for wgpu
         "-framework", "QuartzCore", -- for wgpu
@@ -124,3 +126,4 @@ lean_exe helloworld where
       ]
       else #["-lglfw"]
   root := `Main
+  extraDepTargets := #[`glfw3webgpu]

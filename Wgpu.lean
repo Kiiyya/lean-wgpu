@@ -11,7 +11,6 @@ alloy c section
   #include <lean/lean.h>
   #include <wgpu.h>
   #include <webgpu.h>
-  #include <GLFW/glfw3.h>
 end
 
 alloy c section
@@ -64,6 +63,15 @@ def createInstance (desc : InstanceDescriptor) : IO Instance := {
   return lean_io_result_mk_ok(to_lean<Instance>(inst));
 }
 
+/- # Surface
+  e.g. from GLFW -/
+
+alloy c opaque_extern_type Surface => WGPUSurface where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUSurface\n");
+    wgpuSurfaceRelease(*ptr);
+    free(ptr);
+
 /- # Adapter -/
 
 alloy c opaque_extern_type Adapter => WGPUAdapter where
@@ -88,9 +96,12 @@ alloy c section
 end
 
 alloy c extern
-def Instance.requestAdapter (l_inst : Instance) : IO (A (Result Adapter)) := {
+def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Result Adapter)) := {
   WGPUInstance *inst = of_lean<Instance>(l_inst);
   WGPURequestAdapterOptions adapterOpts = {};
+  adapterOpts.nextInChain = NULL;
+  lean_inc(surface); -- ! memory leak, need to dec later.
+  adapterOpts.compatibleSurface = *of_lean<Surface>(surface);
 
   lean_task_object *promise = promise_mk();
   -- Note that the adapter maintains an internal (wgpu) reference to the WGPUInstance, according to the C++ guide: "We will no longer need to use the instance once we have selected our adapter, so we can call wgpuInstanceRelease(instance) right after the adapter request instead of at the very end. The underlying instance object will keep on living until the adapter gets released but we do not need to manager this."
