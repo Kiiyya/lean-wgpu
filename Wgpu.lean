@@ -1,4 +1,3 @@
-import Glfw
 import Wgpu.Async
 import Alloy.C
 open scoped Alloy.C

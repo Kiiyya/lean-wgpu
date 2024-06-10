@@ -26,17 +26,17 @@ def triangle : IO Unit := do
   queue.submit #[command]
 
   wgpu_playground adapter
-  sleep 100
+  sleep 10
 
 def main : IO Unit := do
   triangle
-  eprintln s!"done"
 
-  -- glfw_playground
-  -- let window ← GLFWwindow.mk 640 480
-  -- while not (← window.shouldClose) do
-  --   println! "polling"
-  --   GLFW.pollEvents
-  -- return
+  glfw_playground
+  let window ← GLFWwindow.mk 640 480
+  while not (← window.shouldClose) do
+    -- println! "polling"
+    GLFW.pollEvents
+
+  eprintln s!"done"
 
 -- #eval main -- works in LSP, but not via `lake build helloworld`.
