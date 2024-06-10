@@ -245,6 +245,7 @@ alloy c extern def Device.setUncapturedErrorCallback
 alloy c opaque_extern_type Command => WGPUCommandBuffer where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUCommandBuffer\n");
+    wgpuCommandBufferRelease(*ptr);
     free(ptr);
 
 
@@ -308,10 +309,6 @@ alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO 
   }
   size_t n = lean_array_size(commands);
 
-  -- Convert LeanArray to LeanScalarArray
-  -- lean_object *commands_s = lean_alloc_sarray(sizeof(WGPUCommandBuffer), n, n);
-  -- WGPUCommandBuffer* arr = lean_sarray_cptr(commands_s);
-
   -- Copy each command lean object (they're pointers, so not super heavy) into a continuous C array of wgpu commands.
   WGPUCommandBuffer* arr = malloc(sizeof(WGPUCommandBuffer) * n);
   for (size_t i = 0; i < n; i++) {
@@ -321,6 +318,7 @@ alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO 
   }
 
   wgpuQueueSubmit(*c_queue, n, arr);
+  free(arr);
   return lean_io_result_mk_ok(lean_box(0));
 }
 
