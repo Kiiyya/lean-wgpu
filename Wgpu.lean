@@ -213,7 +213,30 @@ alloy c extern def Adapter.requestDevice (l_adapter : Adapter) (l_ddesc : Device
   return lean_io_result_mk_ok((lean_object*) promise);
 }
 
+/- ## Uncaptured Error Callback -/
+alloy c section
+  void onDeviceUncapturedErrorCallback(WGPUErrorType type, char const* message, void* closure) {
+    fprintf(stderr, "onDeviceUncapturedErrorCallback");
+    lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
+    lean_object *l_message = lean_mk_string(message);
+    lean_object *res = lean_apply_2((lean_object *) l_closure, lean_box(type), l_message);
+    if (!lean_io_result_is_ok(res)) {
+      -- TODO: What if the closure itself errors?
+      fprintf(stderr, "onDeviceUncapturedErrorCallback closure errored out!");
+      abort();
+    }
+  }
+end
 
+alloy c extern def Device.setUncapturedErrorCallback
+  (l_device : Device)
+  (onDeviceError : UInt32 -> String -> IO Unit)
+  : IO Unit :=
+{
+  WGPUDevice *device = of_lean<Device>(l_device);
+  wgpuDeviceSetUncapturedErrorCallback(*device, onDeviceUncapturedErrorCallback, onDeviceError);
+  return lean_io_result_mk_ok(lean_box(0));
+}
 
 
 alloy c extern

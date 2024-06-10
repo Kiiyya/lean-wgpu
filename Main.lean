@@ -5,6 +5,8 @@ import Glfw
 open IO
 open Wgpu
 
+set_option linter.unusedVariables false
+
 def triangle : IO Unit := do
   let desc <- InstanceDescriptor.mk
   let inst <- createInstance desc
@@ -13,7 +15,11 @@ def triangle : IO Unit := do
     eprintln s!"device was lost: {msg}"
     return pure ()
   let device : Device <- adapter.requestDevice ddesc >>= await!
-  -- wgpu_playground adapter
+
+  device.setUncapturedErrorCallback fun code msg => do
+    eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
+
+  wgpu_playground adapter
   sleep 100
 
 def main : IO Unit := do
