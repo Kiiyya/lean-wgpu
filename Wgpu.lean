@@ -108,7 +108,7 @@ def Instance.requestAdapter (l_inst : Instance) : IO (A (Result Adapter)) := {
   https://eliemichel.github.io/LearnWebGPU/getting-started/adapter-and-device/the-device.html#the-device
 -/
 
-/- ## Device Descriptor -/
+-- /- ## Device Descriptor -/
 
 alloy c section
   typedef struct {
@@ -137,13 +137,41 @@ alloy c opaque_extern_type DeviceDescriptor => LWGPUDeviceDescriptor where
     lean_dec((lean_object*) ptr->l_label);
     free(ptr);
 
-alloy c extern def DeviceDescriptor.mk (l_label : String) : IO DeviceDescriptor := {
+-- alloy c enum DeviceLostReason => int
+-- | undefined => WGPUDeviceLostReason_Undefined
+-- | destroyed => WGPUDeviceLostReason_Destroyed
+-- | force32 => WGPUDeviceLostReason_Force32
+
+alloy c section
+  void onDeviceLostCallback(WGPUDeviceLostReason reason, char const* message, void* closure) {
+    fprintf(stderr, "onDeviceLostCallback");
+    lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
+    -- lean_object *l_reason = to_lean<DeviceLostReason>(reason);
+    lean_object *l_message = lean_mk_string(message);
+    lean_object *res = lean_apply_1((lean_object *) l_closure, /- l_reason, -/ l_message);
+    if (!lean_io_result_is_ok(res)) {
+      -- TODO: What if the closure itself errors?
+      fprintf(stderr, "onDeviceLost closure errored out!");
+      abort();
+    }
+  }
+end
+
+alloy c extern def DeviceDescriptor.mk
+  (l_label : String := "The default device")
+  (onDeviceLost : /- DeviceLostReason -> -/ (message : String) -> IO (A Unit) := fun _ => pure (pure ()))
+  : IO DeviceDescriptor :=
+{
   fprintf(stderr, "mk WGPUDeviceDescriptor\n");
   LWGPUDeviceDescriptor *desc = malloc(sizeof(LWGPUDeviceDescriptor));
   desc->desc.nextInChain = NULL;
 
   lean_inc(l_label); -- * increase refcount of string ==> need to dec in finalizer
   desc->desc.label = lean_string_cstr(l_label);
+  desc->desc.defaultQueue.nextInChain = NULL;
+  desc->desc.defaultQueue.label = "The default queue";
+  desc->desc.deviceLostCallback = onDeviceLostCallback; -- the C function, which then actually...
+  desc->desc.deviceLostUserdata = onDeviceLost;         -- ...invokes this Lean closure :D
   desc->l_label = (lean_string_object *) l_label;
 
   return lean_io_result_mk_ok(to_lean<DeviceDescriptor>(desc));
@@ -154,6 +182,7 @@ alloy c extern def DeviceDescriptor.mk (l_label : String) : IO DeviceDescriptor 
 alloy c opaque_extern_type Device => WGPUDevice where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUDevice\n");
+    wgpuDeviceRelease(*ptr);
     free(ptr);
 
 alloy c section
