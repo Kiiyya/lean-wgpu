@@ -56,58 +56,45 @@ def glfw_path : String :=
 def glfw_include_path : String := glfw_path ++ "/include"
 def glfw_library_path : String := glfw_path ++ "/lib"
 
--- def buildC
-
--- Inspiration from Utensil's repo, maybe you can run a script here directly, idk.
 target glfw3webgpu pkg : FilePath := do
-  compileO
-    (pkg.dir / "glfw3webgpu" / "glfw3webgpu.o")
-    (pkg.dir / "glfw3webgpu" / "glfw3webgpu.c")
-    #["-I",pkg.dir / wgpu_native_dir |>.toString]
+  proc {
+    cmd := "clang",
+    args :=
+      let args := if getOS == .macos then #["-x", "objective-c"] else #[]
+      args ++ #[
+        "-o", (pkg.dir / "glfw3webgpu" / "glfw3webgpu.o").toString,
+        "-c", (pkg.dir / "glfw3webgpu" / "glfw3webgpu.c").toString,
+        "-I", glfw_include_path,
+        "-I", pkg.dir / wgpu_native_dir |>.toString
+      ]
+  }
   inputFile <| pkg.dir / "glfw3webgpu" / "glfw3webgpu.o"
-  -- Package.afterReleaseSync sorry
-  -- afterReleaseSync build
-  -- sorry
 
 section Glfw
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
   lean_lib Glfw where
-    moreLeancArgs := Id.run do
-      let mut args := #[
+    moreLeancArgs := #[
         "-I", __dir__ / wgpu_native_dir |>.toString,
         "-I", __dir__ / "glfw3webgpu" |>.toString,
         "-I", glfw_include_path,
         "-fPIC"
       ]
-      if getOS == .macos then args := args ++ #["-x", "objective-c"]
-      return args
 
-    moreLinkArgs := if getOS == .macos then
-    #[
-      "-framework", "Cocoa",
-      "-framework", "CoreVideo",
-      "-framework", "IOKit",
-      "-framework", "QuartzCore"
-    ] else #[]
+    moreLinkArgs := if getOS == .macos
+      then #[
+        "-framework", "Cocoa",
+        "-framework", "CoreVideo",
+        "-framework", "IOKit",
+        "-framework", "QuartzCore" ]
+      else #[]
     precompileModules := true
     nativeFacets := fun shouldExport =>
       if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
       else #[Module.oNoExportFacet, `alloy.c.o.noexport]
     extraDepTargets := #[`glfw3webgpu]
-
 end Glfw
 
--- section GlfwWgpu
---   /- WebGPU and GLFW are not aware of each other.
---     We need to obtain a surface (the glfw window) for webgpu to draw on.
---     This little library helps with that.  -/
---   extern_lib GlfwWgpu :=
---     compileO (__dir__ / "glfw3webgpu" / "glfw3webgpu.o") (__dir__ / "glfw3webgpu" / "glfw3webgpu.c")
---     sorry
--- end GlfwWgpu
-
 section wgpu_native
-
   extern_lib wgpu_native pkg :=
     inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
 end wgpu_native

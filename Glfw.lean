@@ -5,7 +5,7 @@ alloy c section
   #include <stdio.h>
   #include <lean/lean.h>
   #include <GLFW/glfw3.h>
-  #include <glfw3webgpu.c>
+  -- #include <glfw3webgpu.c>
 end
 
 alloy c opaque_extern_type GLFWwindow => GLFWwindow where
