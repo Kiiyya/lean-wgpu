@@ -56,40 +56,45 @@ def glfw_path : String :=
 def glfw_include_path : String := glfw_path ++ "/include"
 def glfw_library_path : String := glfw_path ++ "/lib"
 
-#check Lake.LeanLibConfig
-
 -- def buildC
 
 -- Inspiration from Utensil's repo, maybe you can run a script here directly, idk.
-target glfw3webgpu.o pkg : FilePath := do
-  let build := compileO
-    (__dir__ / "glfw3webgpu" / "glfw3webgpu.o")
-    (__dir__ / "glfw3webgpu" / "glfw3webgpu.c")
-    #["-x", "objective-c"]
-  Package.afterReleaseSync sorry
+target glfw3webgpu pkg : FilePath := do
+  compileO
+    (pkg.dir / "glfw3webgpu" / "glfw3webgpu.o")
+    (pkg.dir / "glfw3webgpu" / "glfw3webgpu.c")
+    #["-I",pkg.dir / wgpu_native_dir |>.toString]
+  inputFile <| pkg.dir / "glfw3webgpu" / "glfw3webgpu.o"
+  -- Package.afterReleaseSync sorry
   -- afterReleaseSync build
   -- sorry
 
 section Glfw
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
   lean_lib Glfw where
-    moreLeancArgs := #[
-      "-x", "objective-c", -- macOS only.
-      "-I", __dir__ / wgpu_native_dir |>.toString,
-      "-I", __dir__ / "glfw3webgpu" |>.toString,
-      "-I", glfw_include_path,
-      "-fPIC"
-    ]
-    moreLinkArgs := #[
+    moreLeancArgs := Id.run do
+      let mut args := #[
+        "-I", __dir__ / wgpu_native_dir |>.toString,
+        "-I", __dir__ / "glfw3webgpu" |>.toString,
+        "-I", glfw_include_path,
+        "-fPIC"
+      ]
+      if getOS == .macos then args := args ++ #["-x", "objective-c"]
+      return args
+
+    moreLinkArgs := if getOS == .macos then
+    #[
       "-framework", "Cocoa",
       "-framework", "CoreVideo",
       "-framework", "IOKit",
       "-framework", "QuartzCore"
-    ]
+    ] else #[]
     precompileModules := true
     nativeFacets := fun shouldExport =>
       if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
       else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+    extraDepTargets := #[`glfw3webgpu]
+
 end Glfw
 
 -- section GlfwWgpu
