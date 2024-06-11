@@ -26,7 +26,7 @@ def triangle : IO Unit := do
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
-  let encoder := device.createCommandEncoder
+  let encoder <- device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
   let command <- encoder.finish
   queue.submit #[command]
@@ -39,7 +39,8 @@ def triangle : IO Unit := do
   println! "b"
   let view ← TextureView.mk texture
   println! "c"
-  let renderPass ← RenderPassDescriptor.mk encoder view
+  let encoder2 <- device.createCommandEncoder
+  let renderPass ← RenderPassDescriptor.mk encoder2 view
   println! "d"
   while not (← window.shouldClose) do
     device.poll

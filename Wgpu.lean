@@ -272,14 +272,14 @@ alloy c opaque_extern_type CommandEncoder => WGPUCommandEncoder where
     wgpuCommandEncoderRelease(*ptr);
     free(ptr);
 
-alloy c extern def Device.createCommandEncoder (device : Device) : CommandEncoder := {
+alloy c extern def Device.createCommandEncoder (device : Device) : IO CommandEncoder := {
   WGPUDevice *c_device = of_lean<Device>(device);
   WGPUCommandEncoderDescriptor encoderDesc = {};
   encoderDesc.nextInChain = NULL;
   encoderDesc.label = "My command encoder";
   WGPUCommandEncoder *encoder = calloc(1,sizeof(WGPUCommandEncoder));
   *encoder = wgpuDeviceCreateCommandEncoder(*c_device, &encoderDesc);
-  return to_lean<CommandEncoder>(encoder);
+  return lean_io_result_mk_ok(to_lean<CommandEncoder>(encoder));
 }
 
 alloy c extern def CommandEncoder.insertDebugMarker (encoder : CommandEncoder) (s : String) : IO Unit := {
@@ -296,7 +296,7 @@ alloy c extern def CommandEncoder.finish (encoder : CommandEncoder) : IO Command
   cmdBufferDescriptor.label = "Command buffer";
   WGPUCommandBuffer *command = calloc(1,sizeof(WGPUCommandBuffer));
   *command = wgpuCommandEncoderFinish(*c_encoder, &cmdBufferDescriptor);
-  -- wgpuCommandEncoderRelease(encoder); we shouldn't release it here because it'll get released later via lean's refcounting
+  -- wgpuCommandEncoderRelease(*c_encoder); --we shouldn't release it here because it'll get released later via lean's refcounting
   return lean_io_result_mk_ok(to_lean<Command>(command));
 }
 
@@ -528,13 +528,14 @@ def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO 
   WGPUColor c = color_mk(0.9, 0.1, 0.2, 1.0);
   renderPassColorAttachment->clearValue = c;
 
-  *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
-
   fprintf(stderr, "cb  \n");
   renderPassDesc->colorAttachmentCount = 1;
   renderPassDesc->colorAttachments = renderPassColorAttachment;
   renderPassDesc->depthStencilAttachment = NULL;
   renderPassDesc->timestampWrites = NULL;
+
+  *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+
   fprintf(stderr, "cc  \n");
   wgpuRenderPassEncoderEnd(*renderPass);
   fprintf(stderr, "cd  \n");
