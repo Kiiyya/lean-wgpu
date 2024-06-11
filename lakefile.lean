@@ -62,8 +62,8 @@ target glfw3webgpu pkg : FilePath := do
     args :=
       let args := if getOS == .macos then #["-x", "objective-c"] else #[]
       args ++ #[
-        "-o", (pkg.dir / "glfw3webgpu" / "glfw3webgpu.o").toString,
-        "-c", (pkg.dir / "glfw3webgpu" / "glfw3webgpu.c").toString,
+        "-o", pkg.dir / "glfw3webgpu" / "glfw3webgpu.o" |>.toString,
+        "-c", pkg.dir / "glfw3webgpu" / "glfw3webgpu.c" |>.toString,
         "-I", glfw_include_path,
         "-I", pkg.dir / wgpu_native_dir |>.toString
       ]

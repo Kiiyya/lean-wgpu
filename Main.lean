@@ -16,6 +16,7 @@ def triangle : IO Unit := do
   let surface <- getSurface inst window
 
   let adapter <- inst.requestAdapter surface >>= await!
+
   let ddesc <- DeviceDescriptor.mk "default device" fun msg => do
     eprintln s!"device was lost: {msg}"
     return pure ()
@@ -25,11 +26,21 @@ def triangle : IO Unit := do
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
-  let encoder <- device.createCommandEncoder
+  let encoder := device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
   let command <- encoder.finish
   queue.submit #[command]
 
+  let surface_config := SurfaceConfiguration.mk 640 480 surface adapter device
+  surface.configure surface_config
+
+  println! "a"
+  let texture ← surface.getCurrent
+  println! "b"
+  let view ← TextureView.mk texture
+  println! "c"
+  let renderPass ← RenderPassDescriptor.mk encoder view
+  println! "d"
   while not (← window.shouldClose) do
     device.poll
     GLFW.pollEvents

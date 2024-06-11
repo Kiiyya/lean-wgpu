@@ -49,7 +49,7 @@ alloy c opaque_extern_type Instance => WGPUInstance where
 alloy c extern
 def InstanceDescriptor.mk : IO InstanceDescriptor := {
   fprintf(stderr, "mk WGPUInstanceDescriptor\n");
-  WGPUInstanceDescriptor* desc = malloc(sizeof(WGPUInstanceDescriptor));
+  WGPUInstanceDescriptor* desc = calloc(1,sizeof(WGPUInstanceDescriptor));
   desc->nextInChain = NULL;
   -- return to_lean<InstanceDescriptor>(desc);
   return lean_io_result_mk_ok(to_lean<InstanceDescriptor>(desc));
@@ -58,7 +58,7 @@ def InstanceDescriptor.mk : IO InstanceDescriptor := {
 alloy c extern
 def createInstance (desc : InstanceDescriptor) : IO Instance := {
   fprintf(stderr, "mk WGPUInstance\n");
-  WGPUInstance *inst = malloc(sizeof(WGPUInstance));
+  WGPUInstance *inst = calloc(1,sizeof(WGPUInstance));
   *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc)); -- ! RealWorld
   return lean_io_result_mk_ok(to_lean<Instance>(inst));
 }
@@ -83,7 +83,7 @@ alloy c opaque_extern_type Adapter => WGPUAdapter where
 alloy c section
   void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void* promise) {
     if (status == WGPURequestAdapterStatus_Success) {
-      WGPUAdapter *a = (WGPUAdapter*)malloc(sizeof(WGPUAdapter));
+      WGPUAdapter *a = (WGPUAdapter*)calloc(1,sizeof(WGPUAdapter));
       *a = adapter;
       lean_object* l_adapter = to_lean<Adapter>(a);
       -- Promise type is `Except IO.Error Adapter`
@@ -173,7 +173,7 @@ alloy c extern def DeviceDescriptor.mk
   : IO DeviceDescriptor :=
 {
   fprintf(stderr, "mk WGPUDeviceDescriptor\n");
-  LWGPUDeviceDescriptor *desc = malloc(sizeof(LWGPUDeviceDescriptor));
+  LWGPUDeviceDescriptor *desc = calloc(1,sizeof(LWGPUDeviceDescriptor));
   desc->desc.nextInChain = NULL;
 
   lean_inc(l_label); -- * increase refcount of string ==> need to dec in finalizer
@@ -199,7 +199,7 @@ alloy c opaque_extern_type Device => WGPUDevice where
 alloy c section
   void onAdapterRequestDeviceEnded(WGPURequestDeviceStatus status, WGPUDevice device, char const *message, void *promise) {
     if (status == WGPURequestDeviceStatus_Success) {
-      WGPUDevice *d = malloc(sizeof(WGPUDevice));
+      WGPUDevice *d = calloc(1,sizeof(WGPUDevice));
       *d = device;
       lean_object* l_device = to_lean<Device>(d);
       promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_device));
@@ -272,14 +272,14 @@ alloy c opaque_extern_type CommandEncoder => WGPUCommandEncoder where
     wgpuCommandEncoderRelease(*ptr);
     free(ptr);
 
-alloy c extern def Device.createCommandEncoder (device : Device) : IO CommandEncoder := {
+alloy c extern def Device.createCommandEncoder (device : Device) : CommandEncoder := {
   WGPUDevice *c_device = of_lean<Device>(device);
   WGPUCommandEncoderDescriptor encoderDesc = {};
   encoderDesc.nextInChain = NULL;
   encoderDesc.label = "My command encoder";
-  WGPUCommandEncoder *encoder = malloc(sizeof(WGPUCommandEncoder));
+  WGPUCommandEncoder *encoder = calloc(1,sizeof(WGPUCommandEncoder));
   *encoder = wgpuDeviceCreateCommandEncoder(*c_device, &encoderDesc);
-  return lean_io_result_mk_ok(to_lean<CommandEncoder>(encoder));
+  return to_lean<CommandEncoder>(encoder);
 }
 
 alloy c extern def CommandEncoder.insertDebugMarker (encoder : CommandEncoder) (s : String) : IO Unit := {
@@ -294,7 +294,7 @@ alloy c extern def CommandEncoder.finish (encoder : CommandEncoder) : IO Command
   WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
   cmdBufferDescriptor.nextInChain = NULL;
   cmdBufferDescriptor.label = "Command buffer";
-  WGPUCommandBuffer *command = malloc(sizeof(WGPUCommandBuffer));
+  WGPUCommandBuffer *command = calloc(1,sizeof(WGPUCommandBuffer));
   *command = wgpuCommandEncoderFinish(*c_encoder, &cmdBufferDescriptor);
   -- wgpuCommandEncoderRelease(encoder); we shouldn't release it here because it'll get released later via lean's refcounting
   return lean_io_result_mk_ok(to_lean<Command>(command));
@@ -310,7 +310,7 @@ alloy c opaque_extern_type Queue => WGPUQueue where
 
 alloy c extern def Device.getQueue (device : Device) : IO Queue := {
   WGPUDevice *c_device = of_lean<Device>(device);
-  WGPUQueue *c_queue = malloc(sizeof(WGPUQueue));
+  WGPUQueue *c_queue = calloc(1,sizeof(WGPUQueue));
   *c_queue = wgpuDeviceGetQueue(*c_device);
   lean_object *queue = to_lean<Queue>(c_queue);
   return lean_io_result_mk_ok(queue);
@@ -325,7 +325,7 @@ alloy c extern def Queue.submit (queue : Queue) (commands : Array Command) : IO 
   size_t n = lean_array_size(commands);
 
   -- Copy each command lean object (they're pointers, so not super heavy) into a continuous C array of wgpu commands.
-  WGPUCommandBuffer* arr = malloc(sizeof(WGPUCommandBuffer) * n);
+  WGPUCommandBuffer* arr = calloc(1,sizeof(WGPUCommandBuffer) * n);
   for (size_t i = 0; i < n; i++) {
     lean_object *command = lean_array_uget(commands, i);
     WGPUCommandBuffer *c_command = of_lean<Command>(command);
@@ -355,6 +355,192 @@ alloy c extern def Queue.onSubmittedWorkDone (queue : Queue) (f : UInt32 -> IO U
   lean_inc(f);
   wgpuQueueOnSubmittedWorkDone(*c_queue, onSubmittedWorkDoneCallback, f);
   return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- # SurfaceConfiguration -/
+
+
+alloy c opaque_extern_type SurfaceConfiguration  => WGPUSurfaceConfiguration  where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUSurfaceConfiguration \n");
+    free(ptr);
+
+alloy c extern
+def SurfaceConfiguration.mk (width height : UInt32) (surface : Surface) (adapter : Adapter)
+  (device : Device)
+  : SurfaceConfiguration := {
+  WGPUSurface * c_surface = of_lean<Surface>(surface);
+  WGPUAdapter * c_adapter = of_lean<Adapter>(adapter);
+  WGPUDevice * c_device = of_lean<Device>(device);
+  WGPUTextureFormat surfaceFormat = wgpuSurfaceGetPreferredFormat(*c_surface, *c_adapter);
+  WGPUSurfaceConfiguration *config = calloc(1,sizeof(WGPUSurfaceConfiguration))
+  config->format = surfaceFormat;
+  config->nextInChain = NULL; --Is this really needed ?
+  config->width = width;
+  config->height = height;
+  config->viewFormatCount = 0;
+  config->viewFormats = NULL;
+  config->usage = WGPUTextureUsage_RenderAttachment;
+  config->device = *c_device;
+  -- TODO link present mode
+  config->presentMode = WGPUPresentMode_Fifo;
+  -- TODO link alpha mode enum
+  config->alphaMode = WGPUCompositeAlphaMode_Auto;
+  fprintf(stderr, "Done generating config !\n");
+
+  return to_lean<SurfaceConfiguration>(config);
+}
+
+alloy c extern
+def Surface.configure (surface : Surface) (config : SurfaceConfiguration) : IO Unit := {
+  WGPUSurface * c_surface = of_lean<Surface>(surface);
+  WGPUSurfaceConfiguration * c_config = of_lean<SurfaceConfiguration>(config);
+  wgpuSurfaceConfigure(*c_surface,c_config);
+  fprintf(stderr, "Done configuring surface !\n");
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def Surface.unconfigure (surface : Surface) : IO Unit := {
+  WGPUSurface * c_surface = of_lean<Surface>(surface);
+  wgpuSurfaceUnconfigure(*c_surface);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def Surface.present (surface : Surface) : IO Unit := {
+  WGPUSurface * c_surface = of_lean<Surface>(surface);
+  wgpuSurfacePresent(*c_surface);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- # Surface Texture -/
+
+alloy c opaque_extern_type SurfaceTexture => WGPUSurfaceTexture where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUSurfaceTexture \n");
+    free(ptr);
+
+alloy c enum SurfaceTextureStatus => WGPUSurfaceGetCurrentTextureStatus
+| success => WGPUSurfaceGetCurrentTextureStatus_Success
+| timeout => WGPUSurfaceGetCurrentTextureStatus_Timeout
+| outdated => WGPUSurfaceGetCurrentTextureStatus_Outdated
+| lost => WGPUSurfaceGetCurrentTextureStatus_Lost
+| out_of_memory => WGPUSurfaceGetCurrentTextureStatus_OutOfMemory
+| device_lost => WGPUSurfaceGetCurrentTextureStatus_DeviceLost
+| force32 => WGPUSurfaceGetCurrentTextureStatus_Force32
+deriving Inhabited
+
+alloy c extern
+def SurfaceTexture.mk  : IO SurfaceTexture := {
+  WGPUSurfaceTexture * surface_texture = calloc(1,sizeof(WGPUSurfaceTexture));
+  return lean_io_result_mk_ok(to_lean<SurfaceTexture>(surface_texture));
+}
+
+alloy c extern
+def Surface.getCurrent (surface : Surface) : IO SurfaceTexture := {
+  WGPUSurfaceTexture * surface_texture = calloc(1,sizeof(WGPUSurfaceTexture));
+  WGPUSurface * c_surface = of_lean<Surface>(surface);
+  wgpuSurfaceGetCurrentTexture(*c_surface, surface_texture);
+  return lean_io_result_mk_ok(to_lean<SurfaceTexture>(surface_texture));
+}
+
+alloy c extern
+def SurfaceTexture.status (surfaceTexture : SurfaceTexture) : SurfaceTextureStatus := {
+  return to_lean<SurfaceTextureStatus>(of_lean<SurfaceTexture>(surfaceTexture)->status)
+}
+
+/-- # TextureView -/
+
+alloy c opaque_extern_type TextureView => WGPUTextureView where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUTextureView \n");
+    wgpuTextureViewRelease(*ptr);
+    free(ptr);
+
+alloy c extern
+def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
+  WGPUSurfaceTexture * surface_texture = of_lean<SurfaceTexture>(surfaceTexture)
+  WGPUTextureViewDescriptor * viewDescriptor = calloc(1,sizeof(WGPUTextureViewDescriptor));
+  viewDescriptor->nextInChain = NULL;
+  viewDescriptor->label = "Surface texture view";
+  viewDescriptor->format = wgpuTextureGetFormat(surface_texture->texture);
+  viewDescriptor->dimension = WGPUTextureViewDimension_2D;
+  viewDescriptor->baseMipLevel = 0;
+  viewDescriptor->mipLevelCount = 1;
+  viewDescriptor->baseArrayLayer = 0;
+  viewDescriptor->arrayLayerCount = 1;
+  viewDescriptor->aspect = WGPUTextureAspect_All;
+  WGPUTextureView * targetView = calloc(1,sizeof(WGPUTextureView));
+  *targetView = wgpuTextureCreateView(surface_texture->texture, viewDescriptor);
+  return lean_io_result_mk_ok(to_lean<TextureView>(targetView));
+}
+
+/-- # Color -/
+alloy c opaque_extern_type Color => WGPUColor  where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUColor  \n");
+    -- TODO call release
+    free(ptr);
+
+alloy c section
+  WGPUColor color_mk(double r, double g, double b, double a) {
+    WGPUColor c;
+    c.r = r;
+    c.g = g;
+    c.b = b;
+    c.a = a;
+    return c
+  }
+end
+
+alloy c extern
+def Color.mk (r g b a : Float) : Color := {
+  WGPUColor * c = calloc(1,sizeof(WGPUColor));
+  *c = color_mk(r,g,b,a)
+  return to_lean<Color>(c);
+}
+
+
+/-- # RenderPassDescriptor  -/
+
+alloy c opaque_extern_type RenderPassEncoder => WGPURenderPassEncoder  where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPURenderPassEncoder  \n");
+    -- TODO call release
+    free(ptr);
+
+alloy c extern
+def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO RenderPassEncoder := {
+  WGPUCommandEncoder * c_encoder = of_lean<CommandEncoder>(encoder);
+  WGPURenderPassDescriptor * renderPassDesc = calloc(1,sizeof(WGPURenderPassDescriptor));
+  renderPassDesc->nextInChain = NULL;
+
+  WGPURenderPassEncoder * renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
+  fprintf(stderr, "aaaaaae  \n");
+  fprintf(stderr, "ca  \n");
+  -- TODO link ColorAttachment
+  WGPURenderPassColorAttachment * renderPassColorAttachment = calloc(1,sizeof(WGPURenderPassColorAttachment));
+  renderPassColorAttachment->view = *of_lean<TextureView>(view);
+  renderPassColorAttachment->resolveTarget = NULL;
+  renderPassColorAttachment->loadOp = WGPULoadOp_Clear;
+  renderPassColorAttachment->storeOp = WGPUStoreOp_Store;
+  WGPUColor c = color_mk(0.9, 0.1, 0.2, 1.0);
+  renderPassColorAttachment->clearValue = c;
+
+  *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+
+  fprintf(stderr, "cb  \n");
+  renderPassDesc->colorAttachmentCount = 1;
+  renderPassDesc->colorAttachments = renderPassColorAttachment;
+  renderPassDesc->depthStencilAttachment = NULL;
+  renderPassDesc->timestampWrites = NULL;
+  fprintf(stderr, "cc  \n");
+  wgpuRenderPassEncoderEnd(*renderPass);
+  fprintf(stderr, "cd  \n");
+  wgpuRenderPassEncoderRelease(*renderPass);
+  fprintf(stderr, "ce  \n");
+  return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
 
