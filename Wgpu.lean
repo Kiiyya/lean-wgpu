@@ -429,7 +429,7 @@ alloy c enum SurfaceTextureStatus => WGPUSurfaceGetCurrentTextureStatus
 | out_of_memory => WGPUSurfaceGetCurrentTextureStatus_OutOfMemory
 | device_lost => WGPUSurfaceGetCurrentTextureStatus_DeviceLost
 | force32 => WGPUSurfaceGetCurrentTextureStatus_Force32
-deriving Inhabited
+deriving Inhabited, Repr, BEq
 
 alloy c extern
 def SurfaceTexture.mk  : IO SurfaceTexture := {
@@ -446,8 +446,9 @@ def Surface.getCurrent (surface : Surface) : IO SurfaceTexture := {
 }
 
 alloy c extern
-def SurfaceTexture.status (surfaceTexture : SurfaceTexture) : SurfaceTextureStatus := {
-  return to_lean<SurfaceTextureStatus>(of_lean<SurfaceTexture>(surfaceTexture)->status)
+def SurfaceTexture.status (surfaceTexture : SurfaceTexture) : IO SurfaceTextureStatus := {
+  WGPUSurfaceGetCurrentTextureStatus status = of_lean<SurfaceTexture>(surfaceTexture)->status;
+  return lean_io_result_mk_ok(lean_box(to_lean<SurfaceTextureStatus>(status)));
 }
 
 /-- # TextureView -/
@@ -461,6 +462,9 @@ alloy c opaque_extern_type TextureView => WGPUTextureView where
 alloy c extern
 def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
   WGPUSurfaceTexture * surface_texture = of_lean<SurfaceTexture>(surfaceTexture)
+  if (surface_texture->status != WGPUSurfaceGetCurrentTextureStatus_Success) {
+    return lean_io_result_mk_error(lean_decode_io_error(0,NULL));
+  }
   WGPUTextureViewDescriptor * viewDescriptor = calloc(1,sizeof(WGPUTextureViewDescriptor));
   viewDescriptor->nextInChain = NULL;
   viewDescriptor->label = "Surface texture view";
@@ -471,10 +475,17 @@ def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
   viewDescriptor->baseArrayLayer = 0;
   viewDescriptor->arrayLayerCount = 1;
   viewDescriptor->aspect = WGPUTextureAspect_All;
+
   WGPUTextureView * targetView = calloc(1,sizeof(WGPUTextureView));
   *targetView = wgpuTextureCreateView(surface_texture->texture, viewDescriptor);
   return lean_io_result_mk_ok(to_lean<TextureView>(targetView));
 }
+
+alloy c extern
+def TextureView.is_valid (t : TextureView) : IO Bool :=
+  WGPUTextureView * view = of_lean<TextureView>(t);
+  return lean_io_result_mk_ok(lean_box(*view));
+
 
 /-- # Color -/
 alloy c opaque_extern_type Color => WGPUColor  where
@@ -485,7 +496,7 @@ alloy c opaque_extern_type Color => WGPUColor  where
 
 alloy c section
   WGPUColor color_mk(double r, double g, double b, double a) {
-    WGPUColor c;
+    WGPUColor c = {};
     c.r = r;
     c.g = g;
     c.b = b;
@@ -508,40 +519,45 @@ alloy c opaque_extern_type RenderPassEncoder => WGPURenderPassEncoder  where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPURenderPassEncoder  \n");
     -- TODO call release
+    wgpuRenderPassEncoderRelease(*ptr);
     free(ptr);
 
 alloy c extern
 def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO RenderPassEncoder := {
+  lean_inc(encoder);
   WGPUCommandEncoder * c_encoder = of_lean<CommandEncoder>(encoder);
   WGPURenderPassDescriptor * renderPassDesc = calloc(1,sizeof(WGPURenderPassDescriptor));
   renderPassDesc->nextInChain = NULL;
 
-  WGPURenderPassEncoder * renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
-  fprintf(stderr, "aaaaaae  \n");
-  fprintf(stderr, "ca  \n");
+
   -- TODO link ColorAttachment
   WGPURenderPassColorAttachment * renderPassColorAttachment = calloc(1,sizeof(WGPURenderPassColorAttachment));
-  renderPassColorAttachment->view = *of_lean<TextureView>(view);
+  WGPUTextureView * c_view = of_lean<TextureView>(view)
+  renderPassColorAttachment->view = *c_view;
   renderPassColorAttachment->resolveTarget = NULL;
   renderPassColorAttachment->loadOp = WGPULoadOp_Clear;
   renderPassColorAttachment->storeOp = WGPUStoreOp_Store;
-  WGPUColor c = color_mk(0.9, 0.1, 0.2, 1.0);
+  WGPUColor c = color_mk(0.5, 0.5, 0.5, 0.5);
   renderPassColorAttachment->clearValue = c;
 
-  fprintf(stderr, "cb  \n");
   renderPassDesc->colorAttachmentCount = 1;
   renderPassDesc->colorAttachments = renderPassColorAttachment;
   renderPassDesc->depthStencilAttachment = NULL;
   renderPassDesc->timestampWrites = NULL;
 
+  WGPURenderPassEncoder * renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
 
-  fprintf(stderr, "cc  \n");
   wgpuRenderPassEncoderEnd(*renderPass);
-  fprintf(stderr, "cd  \n");
-  wgpuRenderPassEncoderRelease(*renderPass);
-  fprintf(stderr, "ce  \n");
-  return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
+  lean_obj_res res = lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
+  return res
+}
+
+alloy c extern
+def RenderPassEncoder.release (renderPass : RenderPassEncoder) : IO Unit := {
+    WGPURenderPassEncoder * render_pass = of_lean<RenderPassEncoder>(renderPass);
+    wgpuRenderPassEncoderRelease(*render_pass);
+    return lean_io_result_mk_ok(lean_box(0));
 }
 
 

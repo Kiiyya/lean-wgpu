@@ -8,7 +8,7 @@ open Wgpu
 set_option linter.unusedVariables false
 
 def triangle : IO Unit := do
-  let window ← GLFWwindow.mk 640 480
+  let window ← GLFWwindow.mk 1366 768
 
   let desc <- InstanceDescriptor.mk
   let inst <- createInstance desc
@@ -26,25 +26,45 @@ def triangle : IO Unit := do
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
-  let encoder <- device.createCommandEncoder
+  let encoder ← device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
-  let command <- encoder.finish
-  queue.submit #[command]
 
-  let surface_config := SurfaceConfiguration.mk 640 480 surface adapter device
+  let surface_config := SurfaceConfiguration.mk 1366 768 surface adapter device
   surface.configure surface_config
 
-  println! "a"
-  let texture ← surface.getCurrent
-  println! "b"
-  let view ← TextureView.mk texture
-  println! "c"
-  let encoder2 <- device.createCommandEncoder
-  let renderPass ← RenderPassDescriptor.mk encoder2 view
-  println! "d"
+  println! "prout"
   while not (← window.shouldClose) do
-    device.poll
+    println! "prout1"
     GLFW.pollEvents
+    println! "glfw poll"
+    let texture ← surface.getCurrent
+    let status ← texture.status
+    println! "texture status: {repr status}"
+    if (status != .success) then continue
+    let targetView ← TextureView.mk texture
+    println! "view"
+    if !(←  targetView.is_valid) then
+      println! "invalid"
+      continue
+    println! "valid texture"
+    let encoder ← device.createCommandEncoder
+    let renderPass ← RenderPassDescriptor.mk encoder targetView
+    println! "foo"
+    let command <- encoder.finish
+    queue.submit #[command]
+    surface.present
+    renderPass.release
+    -- device.poll
+
+
+
+
+    -- pure ()
+    -- println! "polling !"
+    -- println! (repr <| texture.status)
+    -- surface.present
+    -- device.poll
+    -- GLFW.pollEvents
 
 
 def main : IO Unit := do
