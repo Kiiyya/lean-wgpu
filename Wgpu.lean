@@ -481,10 +481,10 @@ def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
   return lean_io_result_mk_ok(to_lean<TextureView>(targetView));
 }
 
--- alloy c extern
--- def TextureView.is_valid (t : TextureView) : IO Bool :=
---   WGPUTextureView * view = of_lean<TextureView>(t);
---   return lean_io_result_mk_ok(lean_box(*view));
+alloy c extern
+def TextureView.is_valid (t : TextureView) : IO Bool :=
+  WGPUTextureView * view = of_lean<TextureView>(t);
+  return lean_io_result_mk_ok(lean_box(*view != NULL));
 
 
 /-- # Color -/

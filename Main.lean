@@ -43,9 +43,9 @@ def triangle : IO Unit := do
     if (status != .success) then continue
     let targetView ← TextureView.mk texture
     println! "view"
-    -- if !(←  targetView.is_valid) then
-    --   println! "invalid"
-    --   continue
+    if !(←  targetView.is_valid) then
+      println! "invalid"
+      continue
     println! "valid texture"
     let encoder ← device.createCommandEncoder
     let renderPass ← RenderPassDescriptor.mk encoder targetView
@@ -53,8 +53,8 @@ def triangle : IO Unit := do
     let command <- encoder.finish
     queue.submit #[command]
     surface.present
-    renderPass.release
-    -- device.poll
+    -- renderPass.release
+    device.poll
 
 
 
