@@ -481,10 +481,10 @@ def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
   return lean_io_result_mk_ok(to_lean<TextureView>(targetView));
 }
 
-alloy c extern
-def TextureView.is_valid (t : TextureView) : IO Bool :=
-  WGPUTextureView * view = of_lean<TextureView>(t);
-  return lean_io_result_mk_ok(lean_box(*view));
+-- alloy c extern
+-- def TextureView.is_valid (t : TextureView) : IO Bool :=
+--   WGPUTextureView * view = of_lean<TextureView>(t);
+--   return lean_io_result_mk_ok(lean_box(*view));
 
 
 /-- # Color -/
@@ -537,7 +537,7 @@ def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO 
   renderPassColorAttachment->resolveTarget = NULL;
   renderPassColorAttachment->loadOp = WGPULoadOp_Clear;
   renderPassColorAttachment->storeOp = WGPUStoreOp_Store;
-  WGPUColor c = color_mk(0.5, 0.5, 0.5, 0.5);
+  WGPUColor c = color_mk(0.9, 0.3, 0.9, 0.5);
   renderPassColorAttachment->clearValue = c;
 
   renderPassDesc->colorAttachmentCount = 1;
