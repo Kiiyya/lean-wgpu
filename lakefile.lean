@@ -49,22 +49,26 @@ def wgpu_native_dir :=
   s!"libs/{s}-debug"
 
 /- GLFW is a cross-platform library for opening a window. -/
-def glfw_path : String :=
+def glfw_path : Option String :=
   match (getOS, getArch) with
-  | (.macos, _) => (run_io (systemCommand "brew" #["--prefix", "glfw"])) -- returns for example "/opt/homebrew/opt/glfw"
+  | (.macos, _) => pure (run_io (systemCommand "brew" #["--prefix", "glfw"])) -- returns for example "/opt/homebrew/opt/glfw"
+  | (.linux,_) => none
   | _ => panic! "Unsupported arch/os combination"
-def glfw_include_path : String := glfw_path ++ "/include"
-def glfw_library_path : String := glfw_path ++ "/lib"
+def glfw_include_path : Option String := do
+  let path ← glfw_path
+  return path ++ "/include"
+def glfw_library_path : Option String := do
+  let path ← glfw_path
+  return path ++ "/lib"
 
 target glfw3webgpu pkg : FilePath := do
   proc {
     cmd := "clang",
     args :=
-      let args := if getOS == .macos then #["-x", "objective-c"] else #[]
+      let args := if getOS == .macos then #["-x", "objective-c","-I", glfw_include_path.get!] else #[]
       args ++ #[
         "-o", pkg.dir / "glfw3webgpu" / "glfw3webgpu.o" |>.toString,
         "-c", pkg.dir / "glfw3webgpu" / "glfw3webgpu.c" |>.toString,
-        "-I", glfw_include_path,
         "-I", pkg.dir / wgpu_native_dir |>.toString
       ]
   }
@@ -73,10 +77,11 @@ target glfw3webgpu pkg : FilePath := do
 section Glfw
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
   lean_lib Glfw where
-    moreLeancArgs := #[
+    moreLeancArgs :=
+      let args := if getOS == .macos then #["-I", glfw_include_path.get!] else #[]
+      args ++ #[
         "-I", __dir__ / wgpu_native_dir |>.toString,
         "-I", __dir__ / "glfw3webgpu" |>.toString,
-        "-I", glfw_include_path,
         "-fPIC"
       ]
 
@@ -99,12 +104,14 @@ section wgpu_native
     inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
 end wgpu_native
 
+
 lean_lib Wgpu where
   moreLeancArgs := #[
     "-fPIC"
   ]
-  weakLeancArgs := #[
-    "-I", glfw_include_path,
+  weakLeancArgs :=
+    let args := if getOS == .macos then #["-I", glfw_include_path.get!] else #[]
+    args ++ #[
     "-I", __dir__ / wgpu_native_dir |>.toString
   ]
   precompileModules := true

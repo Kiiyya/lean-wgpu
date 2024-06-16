@@ -32,6 +32,7 @@ def triangle : IO Unit := do
   let surface_config := SurfaceConfiguration.mk 1366 768 surface adapter device
   surface.configure surface_config
 
+  device.poll
   let pipeline ← RenderPipeline.mk device
 
   println! "prout"
