@@ -523,12 +523,10 @@ alloy c opaque_extern_type RenderPassEncoder => WGPURenderPassEncoder  where
     free(ptr);
 
 alloy c extern
-def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO RenderPassEncoder := {
-  lean_inc(encoder);
+def RenderPassEncoder.mk (encoder : CommandEncoder) (view : TextureView): IO RenderPassEncoder := {
   WGPUCommandEncoder * c_encoder = of_lean<CommandEncoder>(encoder);
   WGPURenderPassDescriptor * renderPassDesc = calloc(1,sizeof(WGPURenderPassDescriptor));
   renderPassDesc->nextInChain = NULL;
-
 
   -- TODO link ColorAttachment
   WGPURenderPassColorAttachment * renderPassColorAttachment = calloc(1,sizeof(WGPURenderPassColorAttachment));
@@ -549,8 +547,7 @@ def RenderPassDescriptor.mk (encoder : CommandEncoder) (view : TextureView): IO 
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
 
   wgpuRenderPassEncoderEnd(*renderPass);
-  lean_obj_res res = lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
-  return res
+  return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
 alloy c extern
@@ -560,17 +557,95 @@ def RenderPassEncoder.release (renderPass : RenderPassEncoder) : IO Unit := {
     return lean_io_result_mk_ok(lean_box(0));
 }
 
+/-- # RenderPipeline -/
+
+alloy c opaque_extern_type RenderPipeline => WGPURenderPipeline where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPURenderPipeline \n");
+    wgpuRenderPipelineRelease(*ptr);
+    free(ptr);
+
+alloy c section
+  char* shaderSource = "(@vertex fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f { var p = vec2f(0.0, 0.0); if (in_vertex_index == 0u) { p = vec2f(-0.5, -0.5); } else if (in_vertex_index == 1u) { p = vec2f(0.5, -0.5); } else { p = vec2f(0.0, 0.5); } return vec4f(p, 0.0, 1.0); } @fragment fn fs_main() -> @location(0) vec4f { return vec4f(0.0, 0.4, 1.0, 1.0); })"
+end
 
 alloy c extern
-def wgpu_playground (l_adapter : WGPUAdapter) : IO Unit := {
-  fprintf(stderr, "sizeof command: %lu\n", sizeof(WGPUCommandBuffer));
-  WGPUSupportedLimits supportedLimits = {};
-  supportedLimits.nextInChain = NULL;
-  bool success = wgpuAdapterGetLimits(*of_lean<Adapter>(l_adapter), &supportedLimits);
-  if (success) {
-      fprintf(stderr, "Adapter limits:\n");
-      fprintf(stderr, "  maxTextureDimension1D: %d\n", supportedLimits.limits.maxTextureDimension1D);
-      fprintf(stderr, "  maxTextureDimension2D: %d\n", supportedLimits.limits.maxTextureDimension2D);
-  }
+def RenderPipeline.mk (device : Device) : IO RenderPipeline := {
+  WGPUDevice * c_device = of_lean<Device>(device);
+  fprintf(stderr, "a \n");
+  WGPUTextureFormat surfaceFormat = WGPUTextureFormat_Undefined;
+
+  WGPUShaderModuleDescriptor shaderDesc;
+  fprintf(stderr, "aa \n");
+  WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(*c_device, &shaderDesc);
+  fprintf(stderr, "ab \n");
+  shaderDesc.hintCount = 0;
+  shaderDesc.hints = NULL;
+  WGPUShaderModuleWGSLDescriptor shaderCodeDesc{};
+  shaderCodeDesc.chain.next = NULL;
+  shaderCodeDesc.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+  shaderDesc.nextInChain = &shaderCodeDesc.chain;
+  shaderCodeDesc.code = shaderSource;
+  fprintf(stderr, "b \n");
+  WGPURenderPipelineDescriptor pipelineDesc{};
+  pipelineDesc.nextInChain = NULL;
+  pipelineDesc.vertex.bufferCount = 0;
+  pipelineDesc.vertex.buffers = NULL;
+  pipelineDesc.vertex.module = shaderModule;
+  pipelineDesc.vertex.entryPoint = "vs_main";
+  pipelineDesc.vertex.constantCount = 0;
+  pipelineDesc.vertex.constants = NULL;
+  pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc.primitive.cullMode = WGPUCullMode_None;
+  pipelineDesc.layout = NULL;
+  fprintf(stderr, "c \n");
+  WGPUFragmentState fragmentState{};
+  fragmentState.module = shaderModule;
+  fragmentState.entryPoint = "fs_main";
+  fragmentState.constantCount = 0;
+  fragmentState.constants = NULL;
+  fprintf(stderr, "d \n");
+  pipelineDesc.fragment = &fragmentState;
+
+  pipelineDesc.depthStencil = NULL;
+
+  WGPUBlendState blendState{};
+  blendState.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+  blendState.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+  blendState.color.operation = WGPUBlendOperation_Add;
+  blendState.alpha.srcFactor = WGPUBlendFactor_Zero;
+  blendState.alpha.dstFactor = WGPUBlendFactor_One;
+  blendState.alpha.operation = WGPUBlendOperation_Add;
+  fprintf(stderr, "e \n");
+  WGPUColorTargetState colorTarget{};
+  colorTarget.format = surfaceFormat;
+  colorTarget.blend = &blendState;
+  colorTarget.writeMask = WGPUColorWriteMask_All; // We could write to only some of the color channels.
+
+  // We have only one target because our render pass has only one output color
+  // attachment.
+  fragmentState.targetCount = 1;
+  fragmentState.targets = &colorTarget;
+  fprintf(stderr, "f \n");
+  WGPURenderPipeline * pipeline = calloc(1,sizeof(WGPURenderPipeline));
+  *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, &pipelineDesc);
+  fprintf(stderr, "g \n");
+  return lean_io_result_mk_ok(to_lean<RenderPipeline>(pipeline));
+}
+
+alloy c extern
+def RenderPassEncoder.setPipeline (r : RenderPassEncoder) (p : RenderPipeline) : IO Unit := {
+  WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
+  WGPURenderPipeline * pipeline = of_lean<RenderPipeline>(r);
+  wgpuRenderPassEncoderSetPipeline(*renderPass, *pipeline);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def RenderPassEncoder.draw (r : RenderPassEncoder) (vShape n_inst i j : UInt32) : IO Unit := {
+  WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderDraw(*renderPass, vShape, n_inst, i, j);
   return lean_io_result_mk_ok(lean_box(0));
 }

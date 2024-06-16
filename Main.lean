@@ -32,6 +32,8 @@ def triangle : IO Unit := do
   let surface_config := SurfaceConfiguration.mk 1366 768 surface adapter device
   surface.configure surface_config
 
+  let pipeline ← RenderPipeline.mk device
+
   println! "prout"
   while not (← window.shouldClose) do
     println! "prout1"
@@ -48,7 +50,9 @@ def triangle : IO Unit := do
       continue
     println! "valid texture"
     let encoder ← device.createCommandEncoder
-    let renderPass ← RenderPassDescriptor.mk encoder targetView
+    let renderPass ← RenderPassEncoder.mk encoder targetView
+    renderPass.setPipeline pipeline
+    renderPass.draw 3 1 0 0
     println! "foo"
     let command <- encoder.finish
     queue.submit #[command]
