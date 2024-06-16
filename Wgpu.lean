@@ -401,9 +401,9 @@ alloy c enum TextureFormat  => WGPUTextureFormat
 | Stencil8 => WGPUTextureFormat_Stencil8
 | Depth16Unorm => WGPUTextureFormat_Depth16Unorm
 | Depth24Plus => WGPUTextureFormat_Depth24Plus
-| Depth24PlusStencil8, => WGPUTextureFormat_Depth24PlusStencil8,
+| Depth24PlusStencil8 => WGPUTextureFormat_Depth24PlusStencil8
 | Depth32Float => WGPUTextureFormat_Depth32Float
-| Depth32FloatStencil8B, => WGPUTextureFormat_Depth32FloatStencil8B,
+| Depth32FloatStencil8 => WGPUTextureFormat_Depth32FloatStencil8
 | BC1RGBAUnorm => WGPUTextureFormat_BC1RGBAUnorm
 | BC1RGBAUnormSrgb => WGPUTextureFormat_BC1RGBAUnormSrgb
 | BC2RGBAUnorm => WGPUTextureFormat_BC2RGBAUnorm
@@ -421,7 +421,7 @@ alloy c enum TextureFormat  => WGPUTextureFormat
 | ETC2RGB8Unorm => WGPUTextureFormat_ETC2RGB8Unorm
 | ETC2RGB8UnormSrgb => WGPUTextureFormat_ETC2RGB8UnormSrgb
 | ETC2RGB8A1Unorm => WGPUTextureFormat_ETC2RGB8A1Unorm
-| ETC2RGB8A1UnormSrgb, => WGPUTextureFormat_ETC2RGB8A1UnormSrgb,
+| ETC2RGB8A1UnormSrgb => WGPUTextureFormat_ETC2RGB8A1UnormSrgb
 | ETC2RGBA8Unorm => WGPUTextureFormat_ETC2RGBA8Unorm
 | ETC2RGBA8UnormSrgb => WGPUTextureFormat_ETC2RGBA8UnormSrgb
 | EACR11Unorm => WGPUTextureFormat_EACR11Unorm
@@ -462,8 +462,10 @@ deriving Inhabited, Repr, BEq
 
 alloy c extern
 def TextureFormat.get (surface : Surface) (adapter : Adapter) : TextureFormat := {
-    WGPUTextureFormat * surfaceFormat = calloc(1,sizeof(WGPUTextureFormat));
-    *surfaceFormat =  wgpuSurfaceGetPreferredFormat(*c_surface, *c_adapter);
+    WGPUSurface * c_surface = of_lean<Surface>(surface);
+    WGPUAdapter * c_adapter = of_lean<Adapter>(adapter);
+
+    WGPUTextureFormat surfaceFormat =  wgpuSurfaceGetPreferredFormat(*c_surface, *c_adapter);
     return to_lean<TextureFormat>(surfaceFormat);
 }
 
@@ -478,9 +480,9 @@ alloy c extern
 def SurfaceConfiguration.mk (width height : UInt32) (device : Device) (textureFormat : TextureFormat)
   : SurfaceConfiguration := {
   WGPUDevice * c_device = of_lean<Device>(device);
-  WGPUTextureFormat * surfaceFormat = of_lean<TextureFormat>(textureFormat);
+  WGPUTextureFormat surfaceFormat = of_lean<TextureFormat>(textureFormat);
   WGPUSurfaceConfiguration *config = calloc(1,sizeof(WGPUSurfaceConfiguration))
-  config->format = *surfaceFormat;
+  config->format = surfaceFormat;
   config->nextInChain = NULL; --Is this really needed ?
   config->width = width;
   config->height = height;
@@ -764,14 +766,14 @@ alloy c opaque_extern_type ColorTargetState => WGPUColorTargetState where
 
 alloy c extern
 def ColorTargetState.mk (surfaceFormat : TextureFormat) (blendState : BlendState) :  ColorTargetState := {
-  WGPUTextureFormat * c_surfaceFormat = of_lean<TextureFormat>(surfaceFormat);
+  WGPUTextureFormat c_surfaceFormat = of_lean<TextureFormat>(surfaceFormat);
   WGPUBlendState * c_blendState = of_lean<BlendState>(blendState);
   WGPUColorTargetState * colorTarget = calloc(1,sizeof(WGPUColorTargetState));
-  colorTarget->format = *surfaceFormat;
-  colorTarget->blend = c_blendState;
+  colorTarget->format = surfaceFormat;
+  colorTarget->blend  = c_blendState;
   -- TODO add writeMask param
   colorTarget->writeMask = WGPUColorWriteMask_All; // We could write to only some of the color channels.
-  return to_lean<ColorTargetState>(colortarget)
+  return to_lean<ColorTargetState>(colorTarget)
 }
 
 
@@ -796,12 +798,37 @@ def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetSta
   return to_lean<FragmentState>(fragmentState);
 }
 
-/-- # PipelineDescriptor -/
+/-- # RenderPipelineDescriptor -/
 
-alloy c opaque_extern_type PipelineDescriptor => WGPUPipelineDescriptor where
+alloy c opaque_extern_type RenderPipelineDescriptor => WGPURenderPipelineDescriptor where
   finalize(ptr) :=
-    fprintf(stderr, "finalize WGPUPipelineDescriptor \n");
+    fprintf(stderr, "finalize WGPURenderPipelineDescriptor \n");
     free(ptr);
+
+alloy c extern
+def RenderPipelineDescriptor.mk  (shaderModule : ShaderModule) (fState : FragmentState) : RenderPipelineDescriptor := {
+  WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
+  WGPUFragmentState * fragmentState = of_lean<FragmentState>(fState);
+
+  WGPURenderPipelineDescriptor * pipelineDesc = calloc(1,sizeof(WGPURenderPipelineDescriptor));
+
+  pipelineDesc->nextInChain = NULL;
+  pipelineDesc->vertex.bufferCount = 0;
+  pipelineDesc->vertex.buffers = NULL;
+  pipelineDesc->vertex.module = *c_shaderModule;
+  pipelineDesc->vertex.entryPoint = "vs_main";
+  pipelineDesc->vertex.constantCount = 0;
+  pipelineDesc->vertex.constants = NULL;
+  pipelineDesc->primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc->primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc->primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc->primitive.cullMode = WGPUCullMode_None;
+  pipelineDesc->layout = NULL;
+  pipelineDesc->fragment = fragmentState;
+  pipelineDesc->depthStencil = NULL;
+  return to_lean<RenderPipelineDescriptor>(pipelineDesc);
+}
+
 
 /-- # RenderPipeline -/
 
@@ -812,49 +839,12 @@ alloy c opaque_extern_type RenderPipeline => WGPURenderPipeline where
     free(ptr);
 
 -- TODO unclog that mess
-alloy c extern "la_pizza"
-def RenderPipeline.mk (device : Device) (shaderModule : ShaderModule) (fState : FragmentState): IO RenderPipeline := {
+alloy c extern
+def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor): IO RenderPipeline := {
   WGPUDevice * c_device = of_lean<Device>(device);
-  WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
-  WGPUFragmentState * fragmentState = of_lean<FragmentState>(fState);
-  WGPUTextureFormat surfaceFormat = WGPUTextureFormat_Undefined;
-  fprintf(stderr, "ab \n");
-  WGPURenderPipelineDescriptor pipelineDesc{};
-  pipelineDesc.nextInChain = NULL;
-  pipelineDesc.vertex.bufferCount = 0;
-  pipelineDesc.vertex.buffers = NULL;
-  pipelineDesc.vertex.module = *c_shaderModule;
-  pipelineDesc.vertex.entryPoint = "vs_main";
-  pipelineDesc.vertex.constantCount = 0;
-  pipelineDesc.vertex.constants = NULL;
-  pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-  pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
-  pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
-  pipelineDesc.primitive.cullMode = WGPUCullMode_None;
-  pipelineDesc.layout = NULL;
-  fprintf(stderr, "c \n");
-  pipelineDesc.fragment = fragmentState;
-
-  pipelineDesc.depthStencil = NULL;
-
-  -- WGPUBlendState blendState{};
-  -- blendState.color.srcFactor = WGPUBlendFactor_SrcAlpha;
-  -- blendState.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
-  -- blendState.color.operation = WGPUBlendOperation_Add;
-  -- blendState.alpha.srcFactor = WGPUBlendFactor_Zero;
-  -- blendState.alpha.dstFactor = WGPUBlendFactor_One;
-  -- blendState.alpha.operation = WGPUBlendOperation_Add;
-  fprintf(stderr, "e \n");
-  WGPUColorTargetState colorTarget{};
-
-
-  // We have only one target because our render pass has only one output color
-  // attachment.
-
-  fprintf(stderr, "f \n");
+  WGPURenderPipelineDescriptor * c_pipelineDesc = of_lean<RenderPipelineDescriptor>(pipelineDesc);
   WGPURenderPipeline * pipeline = calloc(1,sizeof(WGPURenderPipeline));
-  *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, &pipelineDesc);
-  fprintf(stderr, "g \n");
+  *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, c_pipelineDesc);
   return lean_io_result_mk_ok(to_lean<RenderPipeline>(pipeline));
 }
 

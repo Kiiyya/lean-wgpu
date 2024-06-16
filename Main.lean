@@ -29,34 +29,34 @@ def triangle : IO Unit := do
   let encoder ← device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
 
-  let surface_config := SurfaceConfiguration.mk 1366 768 surface adapter device
+  let texture_format := TextureFormat.get surface adapter
+
+  let surface_config := SurfaceConfiguration.mk 1366 768 device texture_format
   surface.configure surface_config
 
   let shaderModuleDescriptor := ShaderModuleDescriptor.mk <| ShaderModuleWGSLDescriptor.mk ()
   let shaderModule := ShaderModule.mk device shaderModuleDescriptor
 
-  let pipeline ← RenderPipeline.mk device shaderModule
+  let blendState := BlendState.mk shaderModule
+  let colorTargetState := ColorTargetState.mk texture_format blendState
+  let fragmentState := FragmentState.mk shaderModule colorTargetState
+  let renderPipelineDescriptor := RenderPipelineDescriptor.mk shaderModule fragmentState
 
-  println! "prout"
+  let pipeline ← RenderPipeline.mk device renderPipelineDescriptor
+
   while not (← window.shouldClose) do
 
     GLFW.pollEvents
-
     let texture ← surface.getCurrent
     let status ← texture.status
-    println! "texture status: {repr status}"
     if (status != .success) then continue
     let targetView ← TextureView.mk texture
-    println! "view"
     if !(←  targetView.is_valid) then
-      println! "invalid"
       continue
-    println! "valid texture"
     let encoder ← device.createCommandEncoder
     let renderPass ← RenderPassEncoder.mk encoder targetView
-    -- renderPass.setPipeline pipeline
+    renderPass.setPipeline pipeline
     renderPass.draw 3 1 0 0
-    println! "foo"
     let command <- encoder.finish
     queue.submit #[command]
     surface.present
