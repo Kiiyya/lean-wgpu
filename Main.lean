@@ -34,7 +34,10 @@ def triangle : IO Unit := do
   let surface_config := SurfaceConfiguration.mk 1366 768 device texture_format
   surface.configure surface_config
 
-  let shaderModuleDescriptor := ShaderModuleDescriptor.mk <| ShaderModuleWGSLDescriptor.mk ()
+  let shaderSource := shaderSource 0;
+
+  let shaderModuleWGSLDescriptor := ShaderModuleWGSLDescriptor.mk shaderSource
+  let shaderModuleDescriptor := ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
   let shaderModule := ShaderModule.mk device shaderModuleDescriptor
 
   let blendState := BlendState.mk shaderModule

@@ -5,13 +5,11 @@ open IO
 
 namespace Wgpu
 
-alloy c section
-  #include <stdio.h>
-  #include <stdlib.h>
-  #include <lean/lean.h>
-  #include <wgpu.h>
-  #include <webgpu.h>
-end
+alloy c include <stdio.h>
+alloy c include <stdlib.h>
+alloy c include <lean/lean.h>
+alloy c include <wgpu.h>
+alloy c include <webgpu.h>
 
 alloy c section
   -- hacky. Copied from the compiled output from lean runtime
@@ -667,7 +665,7 @@ def RenderPassEncoder.release (renderPass : RenderPassEncoder) : IO Unit := {
 
 alloy c section
   -- WGSL DSL when ?
-  char* shaderSource =
+  char* shaderSource_ =
   "@vertex \
   fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f { \
     var p = vec2f(0.0, 0.0); \
@@ -687,6 +685,12 @@ alloy c section
   }";
 end
 
+alloy c extern
+def shaderSource (u : UInt32): String := {
+  fprintf(stderr, "mk source %d\n", u);
+  return lean_mk_string(shaderSource_);
+}
+
 /-- # ShaderModuleWGSLDescriptor -/
 
 alloy c opaque_extern_type ShaderModuleWGSLDescriptor => WGPUShaderModuleWGSLDescriptor where
@@ -697,11 +701,13 @@ alloy c opaque_extern_type ShaderModuleWGSLDescriptor => WGPUShaderModuleWGSLDes
 
 -- TODO put shaderSource as parameter to the function (how to transform String into char* ?)
 alloy c extern
-def ShaderModuleWGSLDescriptor.mk (u : Unit): ShaderModuleWGSLDescriptor := {
+def ShaderModuleWGSLDescriptor.mk (shaderSource : String): ShaderModuleWGSLDescriptor := {
+  char const * c_shaderSource = lean_string_cstr(shaderSource);
+  fprintf(stderr, "mk ShaderModuleWGSLDescriptor \n");
   WGPUShaderModuleWGSLDescriptor * shaderCodeDesc = calloc(1,sizeof(WGPUShaderModuleWGSLDescriptor));
   shaderCodeDesc->chain.next = NULL;
   shaderCodeDesc->chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-  shaderCodeDesc->code = shaderSource;
+  shaderCodeDesc->code = c_shaderSource;
   return to_lean<ShaderModuleWGSLDescriptor>(shaderCodeDesc);
 }
 
@@ -715,6 +721,7 @@ alloy c opaque_extern_type ShaderModuleDescriptor => WGPUShaderModuleDescriptor 
 
 alloy c extern
 def ShaderModuleDescriptor.mk (shaderCodeDesc : ShaderModuleWGSLDescriptor) : ShaderModuleDescriptor := {
+  fprintf(stderr, "mk ShaderModuleDescriptor \n");
   WGPUShaderModuleWGSLDescriptor * c_shaderCodeDesc = of_lean<ShaderModuleWGSLDescriptor>(shaderCodeDesc);
   WGPUShaderModuleDescriptor * shaderDesc = calloc(1, sizeof(WGPUShaderModuleDescriptor));
   shaderDesc->hintCount = 0;
@@ -731,6 +738,7 @@ alloy c opaque_extern_type ShaderModule => WGPUShaderModule where
 
 alloy c extern
 def ShaderModule.mk (device : Device) (shaderDesc : ShaderModuleDescriptor) : ShaderModule := {
+  fprintf(stderr, "mk ShaderModule \n");
   WGPUDevice * c_device = of_lean<Device>(device);
   WGPUShaderModuleDescriptor * c_shaderDesc = of_lean<ShaderModuleDescriptor>(shaderDesc);
   WGPUShaderModule * shaderModule = calloc(1,sizeof(WGPUShaderModule));
@@ -747,6 +755,8 @@ alloy c opaque_extern_type BlendState => WGPUBlendState where
 
 alloy c extern
 def BlendState.mk (shaderModule : ShaderModule) : BlendState := {
+  fprintf(stderr, "mk BlendState \n");
+
   WGPUBlendState * blendState = calloc(1,sizeof(WGPUBlendState));;
   blendState->color.srcFactor = WGPUBlendFactor_SrcAlpha;
   blendState->color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
@@ -766,6 +776,8 @@ alloy c opaque_extern_type ColorTargetState => WGPUColorTargetState where
 
 alloy c extern
 def ColorTargetState.mk (surfaceFormat : TextureFormat) (blendState : BlendState) :  ColorTargetState := {
+  fprintf(stderr, "mk ColorTargetState \n");
+
   WGPUTextureFormat c_surfaceFormat = of_lean<TextureFormat>(surfaceFormat);
   WGPUBlendState * c_blendState = of_lean<BlendState>(blendState);
   WGPUColorTargetState * colorTarget = calloc(1,sizeof(WGPUColorTargetState));
@@ -786,6 +798,8 @@ alloy c opaque_extern_type FragmentState => WGPUFragmentState where
 
 alloy c extern
 def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetState): FragmentState := {
+  fprintf(stderr, "mk FragmentState \n");
+
   WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
   WGPUColorTargetState * c_colorTarget = of_lean<ColorTargetState>(colorTarget);
   WGPUFragmentState * fragmentState = calloc(1,sizeof(WGPUFragmentState));
