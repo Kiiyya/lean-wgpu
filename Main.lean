@@ -32,14 +32,16 @@ def triangle : IO Unit := do
   let surface_config := SurfaceConfiguration.mk 1366 768 surface adapter device
   surface.configure surface_config
 
-  device.poll
-  let pipeline ← RenderPipeline.mk device
+  let shaderModuleDescriptor := ShaderModuleDescriptor.mk <| ShaderModuleWGSLDescriptor.mk ()
+  let shaderModule := ShaderModule.mk device shaderModuleDescriptor
+
+  let pipeline ← RenderPipeline.mk device shaderModule
 
   println! "prout"
   while not (← window.shouldClose) do
-    println! "prout1"
+
     GLFW.pollEvents
-    println! "glfw poll"
+
     let texture ← surface.getCurrent
     let status ← texture.status
     println! "texture status: {repr status}"
@@ -52,7 +54,7 @@ def triangle : IO Unit := do
     println! "valid texture"
     let encoder ← device.createCommandEncoder
     let renderPass ← RenderPassEncoder.mk encoder targetView
-    renderPass.setPipeline pipeline
+    -- renderPass.setPipeline pipeline
     renderPass.draw 3 1 0 0
     println! "foo"
     let command <- encoder.finish

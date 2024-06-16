@@ -54,9 +54,11 @@ def glfw_path : Option String :=
   | (.macos, _) => pure (run_io (systemCommand "brew" #["--prefix", "glfw"])) -- returns for example "/opt/homebrew/opt/glfw"
   | (.linux,_) => none
   | _ => panic! "Unsupported arch/os combination"
+
 def glfw_include_path : Option String := do
   let path ← glfw_path
   return path ++ "/include"
+
 def glfw_library_path : Option String := do
   let path ← glfw_path
   return path ++ "/lib"
@@ -137,3 +139,6 @@ lean_exe helloworld where
       ]
   root := `Main
   extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := fun shouldExport =>
+    if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
+    else #[Module.oNoExportFacet, `alloy.c.o.noexport]
