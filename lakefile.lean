@@ -128,7 +128,7 @@ lean_exe helloworld where
     if getOS == .macos
       then #[
         "./glfw3webgpu/glfw3webgpu.o",
-        s!"-L{glfw_library_path}", "-lglfw",
+        s!"-L{glfw_library_path.get!}", "-lglfw",
         "-framework", "Metal", -- for wgpu
         "-framework", "QuartzCore", -- for wgpu
         "-framework", "CoreFoundation" -- for wgpu
