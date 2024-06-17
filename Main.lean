@@ -56,13 +56,15 @@ def triangle : IO Unit := do
       -- println! "invalid"
       continue
     let encoder ← device.createCommandEncoder
-    let renderPass ← RenderPassEncoder.mk encoder targetView
-    renderPass.setPipeline pipeline
-    renderPass.draw 3 3 0 0
+    let renderPassEncoder ← RenderPassEncoder.mk encoder targetView
+    renderPassEncoder.setPipeline pipeline
+    renderPassEncoder.draw 3 1 0 0
+    renderPassEncoder.end -- ! added this here
+    -- renderPassEncoder.release
+
     let command <- encoder.finish
     queue.submit #[command]
     surface.present
-    -- renderPass.release
     device.poll
     -- println! "polled"
 

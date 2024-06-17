@@ -652,7 +652,7 @@ def RenderPassEncoder.mk (encoder : CommandEncoder) (view : TextureView): IO Ren
   WGPURenderPassEncoder * renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
 
-  wgpuRenderPassEncoderEnd(*renderPass);
+  -- ! This was the culprit: wgpuRenderPassEncoderEnd(*renderPass);
   return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
@@ -865,6 +865,13 @@ def RenderPassEncoder.setPipeline (r : RenderPassEncoder) (p : RenderPipeline) :
   WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
   WGPURenderPipeline * pipeline = of_lean<RenderPipeline>(r);
   wgpuRenderPassEncoderSetPipeline(*renderPass, *pipeline);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def RenderPassEncoder.end (r : RenderPassEncoder) : IO Unit := {
+  WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderEnd(*renderPass);
   return lean_io_result_mk_ok(lean_box(0));
 }
 
