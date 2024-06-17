@@ -49,7 +49,6 @@ def InstanceDescriptor.mk : IO InstanceDescriptor := {
   fprintf(stderr, "mk WGPUInstanceDescriptor\n");
   WGPUInstanceDescriptor* desc = calloc(1,sizeof(WGPUInstanceDescriptor));
   desc->nextInChain = NULL;
-  -- return to_lean<InstanceDescriptor>(desc);
   return lean_io_result_mk_ok(to_lean<InstanceDescriptor>(desc));
 }
 
@@ -83,6 +82,19 @@ alloy c section
     if (status == WGPURequestAdapterStatus_Success) {
       WGPUAdapter *a = (WGPUAdapter*)calloc(1,sizeof(WGPUAdapter));
       *a = adapter;
+
+      WGPUAdapterProperties prop = {};
+      prop.nextInChain = NULL;
+      wgpuAdapterGetProperties(adapter, &prop);
+      fprintf(stderr, "Adapter Properties:\n");
+      fprintf(stderr, " - Vendor ID: %d\n", prop.vendorID);
+      fprintf(stderr, " - Vendor Name: %s\n", prop.vendorName);
+      fprintf(stderr, " - Arch: %s\n", prop.architecture);
+      fprintf(stderr, " - Device ID: %d\n", prop.deviceID);
+      fprintf(stderr, " - Driver Description: %s\n", prop.driverDescription);
+      fprintf(stderr, " - Adapter Type: %d\n", prop.adapterType);
+      fprintf(stderr, " - Backend Type: %d\n", prop.backendType);
+
       lean_object* l_adapter = to_lean<Adapter>(a);
       -- Promise type is `Except IO.Error Adapter`
       promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_adapter));
