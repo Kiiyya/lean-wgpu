@@ -8,7 +8,7 @@ open Wgpu
 set_option linter.unusedVariables false
 
 def triangle : IO Unit := do
-  let window ← GLFWwindow.mk 1366 768
+  let window ← GLFWwindow.mk 1366 768 "T R I A N G L E"
 
   let desc <- InstanceDescriptor.mk
   let inst <- createInstance desc

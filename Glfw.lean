@@ -21,14 +21,14 @@ alloy c opaque_extern_type GLFWwindow => GLFWwindow where
 -- TODO add `GLFWmonitor` and `GLFWwindow`
 /-(title : String)-/
 alloy c extern
-def GLFWwindow.mk (width height : UInt32) : IO GLFWwindow := {
+def GLFWwindow.mk (width height : UInt32) (title : String) : IO GLFWwindow := {
   fprintf(stderr, "mk GLFWwindow\n");
   if (!glfwInit()) {
     return lean_mk_io_user_error(lean_mk_string("Could not initialize GLFW!\n"));
   }
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // <-- extra info for glfwCreateWindow
   glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-  GLFWwindow* window = glfwCreateWindow(width, height, "TODO manage title", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(width, height, lean_string_cstr(title), NULL, NULL);
   return lean_io_result_mk_ok(to_lean<GLFWwindow>(window));
 }
 
