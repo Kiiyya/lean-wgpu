@@ -34,8 +34,6 @@ def triangle : IO Unit := do
   let surface_config := SurfaceConfiguration.mk 1366 768 device texture_format
   surface.configure surface_config
 
-  let shaderSource := shaderSource 0;
-
   let shaderModuleWGSLDescriptor := ShaderModuleWGSLDescriptor.mk shaderSource
   let shaderModuleDescriptor := ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
   let shaderModule := ShaderModule.mk device shaderModuleDescriptor
@@ -45,7 +43,7 @@ def triangle : IO Unit := do
   let fragmentState := FragmentState.mk shaderModule colorTargetState
   let renderPipelineDescriptor := RenderPipelineDescriptor.mk shaderModule fragmentState
 
-  let pipeline ← RenderPipeline.mk device renderPipelineDescriptor
+  let pipeline := RenderPipeline.mk device renderPipelineDescriptor
 
   while not (← window.shouldClose) do
 
@@ -55,16 +53,18 @@ def triangle : IO Unit := do
     if (status != .success) then continue
     let targetView ← TextureView.mk texture
     if !(←  targetView.is_valid) then
+      -- println! "invalid"
       continue
     let encoder ← device.createCommandEncoder
     let renderPass ← RenderPassEncoder.mk encoder targetView
     renderPass.setPipeline pipeline
-    renderPass.draw 3 1 0 0
+    renderPass.draw 3 3 0 0
     let command <- encoder.finish
     queue.submit #[command]
     surface.present
     -- renderPass.release
     device.poll
+    -- println! "polled"
 
 
 

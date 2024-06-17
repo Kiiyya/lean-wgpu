@@ -663,10 +663,10 @@ def RenderPassEncoder.release (renderPass : RenderPassEncoder) : IO Unit := {
     return lean_io_result_mk_ok(lean_box(0));
 }
 
-alloy c section
-  -- WGSL DSL when ?
-  char* shaderSource_ =
-  "@vertex \
+
+
+def shaderSource : String :=
+"@vertex \
   fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f { \
     var p = vec2f(0.0, 0.0); \
     if (in_vertex_index == 0u) { \
@@ -682,14 +682,7 @@ alloy c section
   @fragment \
   fn fs_main() -> @location(0) vec4f { \
       return vec4f(0.0, 0.4, 1.0, 1.0); \
-  }";
-end
-
-alloy c extern
-def shaderSource (u : UInt32): String := {
-  fprintf(stderr, "mk source %d\n", u);
-  return lean_mk_string(shaderSource_);
-}
+  }"
 
 /-- # ShaderModuleWGSLDescriptor -/
 
@@ -703,6 +696,7 @@ alloy c opaque_extern_type ShaderModuleWGSLDescriptor => WGPUShaderModuleWGSLDes
 alloy c extern
 def ShaderModuleWGSLDescriptor.mk (shaderSource : String): ShaderModuleWGSLDescriptor := {
   char const * c_shaderSource = lean_string_cstr(shaderSource);
+  fprintf(stderr, "%s \n",c_shaderSource);
   fprintf(stderr, "mk ShaderModuleWGSLDescriptor \n");
   WGPUShaderModuleWGSLDescriptor * shaderCodeDesc = calloc(1,sizeof(WGPUShaderModuleWGSLDescriptor));
   shaderCodeDesc->chain.next = NULL;
@@ -757,13 +751,14 @@ alloy c extern
 def BlendState.mk (shaderModule : ShaderModule) : BlendState := {
   fprintf(stderr, "mk BlendState \n");
 
-  WGPUBlendState * blendState = calloc(1,sizeof(WGPUBlendState));;
+  WGPUBlendState * blendState = calloc(1,sizeof(WGPUBlendState));
   blendState->color.srcFactor = WGPUBlendFactor_SrcAlpha;
   blendState->color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
   blendState->color.operation = WGPUBlendOperation_Add;
   blendState->alpha.srcFactor = WGPUBlendFactor_Zero;
   blendState->alpha.dstFactor = WGPUBlendFactor_One;
   blendState->alpha.operation = WGPUBlendOperation_Add;
+
   return to_lean<BlendState>(blendState)
 }
 
@@ -799,9 +794,9 @@ alloy c opaque_extern_type FragmentState => WGPUFragmentState where
 alloy c extern
 def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetState): FragmentState := {
   fprintf(stderr, "mk FragmentState \n");
-
   WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
   WGPUColorTargetState * c_colorTarget = of_lean<ColorTargetState>(colorTarget);
+
   WGPUFragmentState * fragmentState = calloc(1,sizeof(WGPUFragmentState));
   fragmentState->module = *c_shaderModule;
   fragmentState->entryPoint = "fs_main";
@@ -840,9 +835,12 @@ def RenderPipelineDescriptor.mk  (shaderModule : ShaderModule) (fState : Fragmen
   pipelineDesc->layout = NULL;
   pipelineDesc->fragment = fragmentState;
   pipelineDesc->depthStencil = NULL;
+  pipelineDesc->multisample.count = 1;
+  pipelineDesc->multisample.mask = 0xFFFFFFFF;
+  pipelineDesc->multisample.alphaToCoverageEnabled = false;
+
   return to_lean<RenderPipelineDescriptor>(pipelineDesc);
 }
-
 
 /-- # RenderPipeline -/
 
@@ -854,12 +852,12 @@ alloy c opaque_extern_type RenderPipeline => WGPURenderPipeline where
 
 -- TODO unclog that mess
 alloy c extern
-def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor): IO RenderPipeline := {
+def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor): RenderPipeline := {
   WGPUDevice * c_device = of_lean<Device>(device);
   WGPURenderPipelineDescriptor * c_pipelineDesc = of_lean<RenderPipelineDescriptor>(pipelineDesc);
   WGPURenderPipeline * pipeline = calloc(1,sizeof(WGPURenderPipeline));
   *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, c_pipelineDesc);
-  return lean_io_result_mk_ok(to_lean<RenderPipeline>(pipeline));
+  return to_lean<RenderPipeline>(pipeline);
 }
 
 alloy c extern
