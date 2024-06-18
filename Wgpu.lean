@@ -47,8 +47,12 @@ alloy c opaque_extern_type Instance => WGPUInstance where
 alloy c extern
 def InstanceDescriptor.mk : IO InstanceDescriptor := {
   fprintf(stderr, "mk WGPUInstanceDescriptor\n");
+  WGPUInstanceExtras * instanceExtras = calloc(1,sizeof(WGPUInstanceExtras));
+  instanceExtras->chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
+  instanceExtras->backends = WGPUInstanceBackend_GL;
+
   WGPUInstanceDescriptor* desc = calloc(1,sizeof(WGPUInstanceDescriptor));
-  desc->nextInChain = NULL;
+  desc->nextInChain = &instanceExtras->chain;
   return lean_io_result_mk_ok(to_lean<InstanceDescriptor>(desc));
 }
 
@@ -83,18 +87,6 @@ alloy c section
       WGPUAdapter *a = (WGPUAdapter*)calloc(1,sizeof(WGPUAdapter));
       *a = adapter;
 
-      WGPUAdapterProperties prop = {};
-      prop.nextInChain = NULL;
-      wgpuAdapterGetProperties(adapter, &prop);
-      fprintf(stderr, "Adapter Properties:\n");
-      fprintf(stderr, " - Vendor ID: %d\n", prop.vendorID);
-      fprintf(stderr, " - Vendor Name: %s\n", prop.vendorName);
-      fprintf(stderr, " - Arch: %s\n", prop.architecture);
-      fprintf(stderr, " - Device ID: %d\n", prop.deviceID);
-      fprintf(stderr, " - Driver Description: %s\n", prop.driverDescription);
-      fprintf(stderr, " - Adapter Type: %d\n", prop.adapterType);
-      fprintf(stderr, " - Backend Type: %d\n", prop.backendType);
-
       lean_object* l_adapter = to_lean<Adapter>(a);
       -- Promise type is `Except IO.Error Adapter`
       promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_adapter));
@@ -112,6 +104,7 @@ def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Resu
   adapterOpts.nextInChain = NULL;
   lean_inc(surface); -- ! memory leak, need to dec later.
   adapterOpts.compatibleSurface = *of_lean<Surface>(surface);
+  adapterOpts.backendType = WGPUBackendType_OpenGLES;
 
   lean_task_object *promise = promise_mk();
   -- Note that the adapter maintains an internal (wgpu) reference to the WGPUInstance, according to the C++ guide: "We will no longer need to use the instance once we have selected our adapter, so we can call wgpuInstanceRelease(instance) right after the adapter request instead of at the very end. The underlying instance object will keep on living until the adapter gets released but we do not need to manager this."
@@ -122,6 +115,24 @@ def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Resu
       (void*)promise
   );
   return lean_io_result_mk_ok((lean_object*) promise);
+}
+
+alloy c extern
+def Adapter.printProperties (a : Adapter) : IO Unit := {
+  WGPUAdapter *adapter = of_lean<Adapter>(a);
+  WGPUAdapterProperties prop = {};
+  prop.nextInChain = NULL;
+  wgpuAdapterGetProperties(*adapter, &prop);
+  fprintf(stderr, "Adapter Properties:\n");
+  fprintf(stderr, " - Vendor ID: %d\n", prop.vendorID);
+  fprintf(stderr, " - Vendor Name: %s\n", prop.vendorName);
+  fprintf(stderr, " - Arch: %s\n", prop.architecture);
+  fprintf(stderr, " - Device ID: %d\n", prop.deviceID);
+  fprintf(stderr, " - Driver Description: %s\n", prop.driverDescription);
+  fprintf(stderr, " - Adapter Type: %d\n", prop.adapterType);
+  fprintf(stderr, " - Backend Type: %d\n", prop.backendType);
+
+  return lean_io_result_mk_ok(lean_box(0));
 }
 
 /- # Device

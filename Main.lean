@@ -16,16 +16,20 @@ def triangle : IO Unit := do
   let surface <- getSurface inst window
 
   let adapter <- inst.requestAdapter surface >>= await!
+  adapter.printProperties
 
   let ddesc <- DeviceDescriptor.mk "default device" fun msg => do
     eprintln s!"device was lost: {msg}"
     return pure ()
+
   let device : Device <- adapter.requestDevice ddesc >>= await!
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
+
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
+
   let encoder ← device.createCommandEncoder
   encoder.insertDebugMarker "rawr"
 
@@ -41,6 +45,7 @@ def triangle : IO Unit := do
   let blendState := BlendState.mk shaderModule
   let colorTargetState := ColorTargetState.mk texture_format blendState
   let fragmentState := FragmentState.mk shaderModule colorTargetState
+  adapter.printProperties
   let renderPipelineDescriptor := RenderPipelineDescriptor.mk shaderModule fragmentState
 
   let pipeline := RenderPipeline.mk device renderPipelineDescriptor
