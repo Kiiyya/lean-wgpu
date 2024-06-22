@@ -26,6 +26,8 @@ def triangle : IO Unit := do
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
 
+  eprintln s!"Have features: {<- device.features}"
+
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
@@ -33,8 +35,6 @@ def triangle : IO Unit := do
   let texture_format <- TextureFormat.get surface adapter
   let surface_config <- SurfaceConfiguration.mk 640 480 device texture_format
   surface.configure surface_config
-
-  sleep 100
 
   -- BEGIN "InitializePipeline"
   let shaderModuleWGSLDescriptor <- ShaderModuleWGSLDescriptor.mk shaderSource
@@ -64,16 +64,12 @@ def triangle : IO Unit := do
     let renderPassEncoder ← RenderPassEncoder.mk encoder targetView
     renderPassEncoder.setPipeline pipeline
     renderPassEncoder.draw 3 1 0 0
-    renderPassEncoder.end -- ! added this here
-    renderPassEncoder.release
+    renderPassEncoder.end
 
     let command <- encoder.finish
     queue.submit #[command]
-    -- command.release
     surface.present
-    -- device.poll
-    -- println! "polled"
-
+    device.poll
 
 def main : IO Unit := do
   triangle

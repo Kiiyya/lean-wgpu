@@ -254,6 +254,38 @@ alloy c extern def Device.poll (device : Device) : IO Unit := {
   return lean_io_result_mk_ok(lean_box(0));
 }
 
+alloy c enum Feature => WGPUFeatureName
+| Undefined => WGPUFeatureName_Undefined
+| DepthClipControl => WGPUFeatureName_DepthClipControl
+| Depth32FloatStencil8 => WGPUFeatureName_Depth32FloatStencil8
+| TimestampQuery => WGPUFeatureName_TimestampQuery
+| TextureCompressionBC => WGPUFeatureName_TextureCompressionBC
+| TextureCompressionETC2 => WGPUFeatureName_TextureCompressionETC2
+| TextureCompressionASTC => WGPUFeatureName_TextureCompressionASTC
+| IndirectFirstInstance => WGPUFeatureName_IndirectFirstInstance
+| ShaderF16 => WGPUFeatureName_ShaderF16
+| RG11B10UfloatRenderable => WGPUFeatureName_RG11B10UfloatRenderable
+| BGRA8UnormStorage => WGPUFeatureName_BGRA8UnormStorage
+| Float32Filterable => WGPUFeatureName_Float32Filterable
+| Force32 => WGPUFeatureName_Force32
+deriving Inhabited, Repr, BEq
+
+instance : ToString Feature where
+  toString f := s!"{repr f}"
+
+alloy c extern def Device.features (device : Device) : IO (Array Feature) := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  size_t n = wgpuDeviceEnumerateFeatures(c_device, NULL);
+  WGPUFeatureName *features = calloc(n, sizeof(WGPUFeatureName));
+  wgpuDeviceEnumerateFeatures(c_device, features);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0)); -- not sure what the second param is for
+  for (size_t i = 0; i < n; i++) {
+    lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+  }
+  return lean_io_result_mk_ok(array);
+}
+
+
 /- ## Uncaptured Error Callback -/
 alloy c section
   void onDeviceUncapturedErrorCallback(WGPUErrorType type, char const* message, void* closure) {
