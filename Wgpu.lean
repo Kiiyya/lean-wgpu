@@ -60,7 +60,9 @@ alloy c extern
 def createInstance (desc : InstanceDescriptor) : IO Instance := {
   fprintf(stderr, "mk WGPUInstance\n");
   WGPUInstance *inst = calloc(1,sizeof(WGPUInstance));
-  *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc)); -- ! RealWorld
+  -- *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc)); -- ! RealWorld
+  *inst = wgpuCreateInstance(NULL); -- ! RealWorld
+  fprintf(stderr, "mk WGPUInstance done!\n");
   return lean_io_result_mk_ok(to_lean<Instance>(inst));
 }
 
@@ -86,6 +88,7 @@ alloy c section
     if (status == WGPURequestAdapterStatus_Success) {
       WGPUAdapter *a = (WGPUAdapter*)calloc(1,sizeof(WGPUAdapter));
       *a = adapter;
+      fprintf(stderr, "Got adapter: %p\n", a);
 
       lean_object* l_adapter = to_lean<Adapter>(a);
       -- Promise type is `Except IO.Error Adapter`
@@ -100,17 +103,17 @@ end
 alloy c extern
 def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Result Adapter)) := {
   WGPUInstance *inst = of_lean<Instance>(l_inst);
-  WGPURequestAdapterOptions adapterOpts = {};
-  adapterOpts.nextInChain = NULL;
+  WGPURequestAdapterOptions *adapterOpts = calloc(1, sizeof(WGPURequestAdapterOptions));
+  adapterOpts->nextInChain = NULL;
   lean_inc(surface); -- ! memory leak, need to dec later.
-  adapterOpts.compatibleSurface = *of_lean<Surface>(surface);
-  adapterOpts.backendType = WGPUBackendType_OpenGLES;
+  adapterOpts->compatibleSurface = *of_lean<Surface>(surface);
+  -- adapterOpts.backendType = WGPUBackendType_OpenGLES;
 
   lean_task_object *promise = promise_mk();
   -- Note that the adapter maintains an internal (wgpu) reference to the WGPUInstance, according to the C++ guide: "We will no longer need to use the instance once we have selected our adapter, so we can call wgpuInstanceRelease(instance) right after the adapter request instead of at the very end. The underlying instance object will keep on living until the adapter gets released but we do not need to manager this."
   wgpuInstanceRequestAdapter( -- ! RealWorld
       *inst,
-      &adapterOpts,
+      adapterOpts,
       onAdapterRequestEnded,
       (void*)promise
   );
@@ -196,9 +199,10 @@ alloy c extern def DeviceDescriptor.mk
   fprintf(stderr, "mk WGPUDeviceDescriptor\n");
   LWGPUDeviceDescriptor *desc = calloc(1,sizeof(LWGPUDeviceDescriptor));
   desc->desc.nextInChain = NULL;
-
   lean_inc(l_label); -- * increase refcount of string ==> need to dec in finalizer
   desc->desc.label = lean_string_cstr(l_label);
+  desc->desc.requiredFeatureCount = 0;
+  desc->desc.requiredLimits = NULL;
   desc->desc.defaultQueue.nextInChain = NULL;
   desc->desc.defaultQueue.label = "The default queue";
   lean_inc(onDeviceLost); -- TODO Not sure if we need this, but if yes: When does it get decremented? ==> Memory leak!
@@ -482,12 +486,12 @@ deriving Inhabited, Repr, BEq
 
 
 alloy c extern
-def TextureFormat.get (surface : Surface) (adapter : Adapter) : TextureFormat := {
+def TextureFormat.get (surface : Surface) (adapter : Adapter) : IO TextureFormat := {
     WGPUSurface * c_surface = of_lean<Surface>(surface);
     WGPUAdapter * c_adapter = of_lean<Adapter>(adapter);
 
     WGPUTextureFormat surfaceFormat =  wgpuSurfaceGetPreferredFormat(*c_surface, *c_adapter);
-    return to_lean<TextureFormat>(surfaceFormat);
+    return lean_io_result_mk_ok(lean_box(to_lean<TextureFormat>(surfaceFormat)));
 }
 
 /-- # SurfaceConfiguration -/
@@ -499,25 +503,28 @@ alloy c opaque_extern_type SurfaceConfiguration  => WGPUSurfaceConfiguration  wh
 
 alloy c extern
 def SurfaceConfiguration.mk (width height : UInt32) (device : Device) (textureFormat : TextureFormat)
-  : SurfaceConfiguration := {
+  : IO SurfaceConfiguration := {
   WGPUDevice * c_device = of_lean<Device>(device);
   WGPUTextureFormat surfaceFormat = of_lean<TextureFormat>(textureFormat);
+  fprintf(stderr, "surfaceFormat is %d\n", surfaceFormat); -- Kiiya: I get 24.
+
   WGPUSurfaceConfiguration *config = calloc(1,sizeof(WGPUSurfaceConfiguration))
-  config->format = surfaceFormat;
   config->nextInChain = NULL; --Is this really needed ?
   config->width = width;
   config->height = height;
+  config->usage = WGPUTextureUsage_RenderAttachment;
+  config->format = surfaceFormat;
+
   config->viewFormatCount = 0;
   config->viewFormats = NULL;
-  config->usage = WGPUTextureUsage_RenderAttachment;
   config->device = *c_device;
   -- TODO link present mode
   config->presentMode = WGPUPresentMode_Fifo;
   -- TODO link alpha mode enum
   config->alphaMode = WGPUCompositeAlphaMode_Auto;
-  fprintf(stderr, "Done generating config !\n");
+  fprintf(stderr, "Done generating surface config !\n");
 
-  return to_lean<SurfaceConfiguration>(config);
+  return lean_io_result_mk_ok(to_lean<SurfaceConfiguration>(config));
 }
 
 alloy c extern
@@ -717,15 +724,16 @@ alloy c opaque_extern_type ShaderModuleWGSLDescriptor => WGPUShaderModuleWGSLDes
 
 -- TODO put shaderSource as parameter to the function (how to transform String into char* ?)
 alloy c extern
-def ShaderModuleWGSLDescriptor.mk (shaderSource : String): ShaderModuleWGSLDescriptor := {
+def ShaderModuleWGSLDescriptor.mk (shaderSource : String) : IO ShaderModuleWGSLDescriptor := {
   char const * c_shaderSource = lean_string_cstr(shaderSource);
-  fprintf(stderr, "%s \n",c_shaderSource);
+  fprintf(stderr, "uhhh %s \n",c_shaderSource);
   fprintf(stderr, "mk ShaderModuleWGSLDescriptor \n");
   WGPUShaderModuleWGSLDescriptor * shaderCodeDesc = calloc(1,sizeof(WGPUShaderModuleWGSLDescriptor));
   shaderCodeDesc->chain.next = NULL;
   shaderCodeDesc->chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
   shaderCodeDesc->code = c_shaderSource;
-  return to_lean<ShaderModuleWGSLDescriptor>(shaderCodeDesc);
+  -- ! shaderDesc.code = &shaderCodeDesc.chain; "connect the chain"
+  return lean_io_result_mk_ok(to_lean<ShaderModuleWGSLDescriptor>(shaderCodeDesc));
 }
 
 /-- # ShaderModuleDescriptor -/
@@ -737,14 +745,14 @@ alloy c opaque_extern_type ShaderModuleDescriptor => WGPUShaderModuleDescriptor 
     free(ptr);
 
 alloy c extern
-def ShaderModuleDescriptor.mk (shaderCodeDesc : ShaderModuleWGSLDescriptor) : ShaderModuleDescriptor := {
+def ShaderModuleDescriptor.mk (shaderCodeDesc : ShaderModuleWGSLDescriptor) : IO ShaderModuleDescriptor := {
   fprintf(stderr, "mk ShaderModuleDescriptor \n");
   WGPUShaderModuleWGSLDescriptor * c_shaderCodeDesc = of_lean<ShaderModuleWGSLDescriptor>(shaderCodeDesc);
   WGPUShaderModuleDescriptor * shaderDesc = calloc(1, sizeof(WGPUShaderModuleDescriptor));
-  shaderDesc->hintCount = 0;
-  shaderDesc->hints = NULL;
+  -- shaderDesc->hintCount = 0;
+  -- shaderDesc->hints = NULL;
   shaderDesc->nextInChain = &c_shaderCodeDesc->chain;
-  return to_lean<ShaderModuleDescriptor>(shaderDesc);
+  return lean_io_result_mk_ok(to_lean<ShaderModuleDescriptor>(shaderDesc));
 }
 
 alloy c opaque_extern_type ShaderModule => WGPUShaderModule where
@@ -754,13 +762,13 @@ alloy c opaque_extern_type ShaderModule => WGPUShaderModule where
     free(ptr);
 
 alloy c extern
-def ShaderModule.mk (device : Device) (shaderDesc : ShaderModuleDescriptor) : ShaderModule := {
+def ShaderModule.mk (device : Device) (shaderDesc : ShaderModuleDescriptor) : IO ShaderModule := {
   fprintf(stderr, "mk ShaderModule \n");
   WGPUDevice * c_device = of_lean<Device>(device);
   WGPUShaderModuleDescriptor * c_shaderDesc = of_lean<ShaderModuleDescriptor>(shaderDesc);
   WGPUShaderModule * shaderModule = calloc(1,sizeof(WGPUShaderModule));
   *shaderModule = wgpuDeviceCreateShaderModule(*c_device, c_shaderDesc);
-  return to_lean<ShaderModule>(shaderModule);
+  return lean_io_result_mk_ok(to_lean<ShaderModule>(shaderModule));
 }
 
 /-- # BlendState -/
@@ -771,7 +779,7 @@ alloy c opaque_extern_type BlendState => WGPUBlendState where
     free(ptr);
 
 alloy c extern
-def BlendState.mk (shaderModule : ShaderModule) : BlendState := {
+def BlendState.mk (shaderModule : ShaderModule) : IO BlendState := {
   fprintf(stderr, "mk BlendState \n");
 
   WGPUBlendState * blendState = calloc(1,sizeof(WGPUBlendState));
@@ -782,7 +790,7 @@ def BlendState.mk (shaderModule : ShaderModule) : BlendState := {
   blendState->alpha.dstFactor = WGPUBlendFactor_One;
   blendState->alpha.operation = WGPUBlendOperation_Add;
 
-  return to_lean<BlendState>(blendState)
+  return lean_io_result_mk_ok(to_lean<BlendState>(blendState));
 }
 
 /-- # ColorTargetState -/
@@ -793,17 +801,17 @@ alloy c opaque_extern_type ColorTargetState => WGPUColorTargetState where
     free(ptr);
 
 alloy c extern
-def ColorTargetState.mk (surfaceFormat : TextureFormat) (blendState : BlendState) :  ColorTargetState := {
+def ColorTargetState.mk (surfaceFormat : TextureFormat) (blendState : BlendState) : IO ColorTargetState := {
   fprintf(stderr, "mk ColorTargetState \n");
-
   WGPUTextureFormat c_surfaceFormat = of_lean<TextureFormat>(surfaceFormat);
   WGPUBlendState * c_blendState = of_lean<BlendState>(blendState);
+
   WGPUColorTargetState * colorTarget = calloc(1,sizeof(WGPUColorTargetState));
   colorTarget->format = surfaceFormat;
   colorTarget->blend  = c_blendState;
   -- TODO add writeMask param
   colorTarget->writeMask = WGPUColorWriteMask_All; // We could write to only some of the color channels.
-  return to_lean<ColorTargetState>(colorTarget)
+  return lean_io_result_mk_ok(to_lean<ColorTargetState>(colorTarget));
 }
 
 
@@ -815,7 +823,7 @@ alloy c opaque_extern_type FragmentState => WGPUFragmentState where
     free(ptr);
 
 alloy c extern
-def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetState): FragmentState := {
+def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetState) : IO FragmentState := {
   fprintf(stderr, "mk FragmentState \n");
   WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
   WGPUColorTargetState * c_colorTarget = of_lean<ColorTargetState>(colorTarget);
@@ -827,7 +835,7 @@ def FragmentState.mk (shaderModule : ShaderModule) (colorTarget : ColorTargetSta
   fragmentState->constants = NULL;
   fragmentState->targetCount = 1;
   fragmentState->targets = c_colorTarget;
-  return to_lean<FragmentState>(fragmentState);
+  return lean_io_result_mk_ok(to_lean<FragmentState>(fragmentState));
 }
 
 /-- # RenderPipelineDescriptor -/
@@ -838,31 +846,34 @@ alloy c opaque_extern_type RenderPipelineDescriptor => WGPURenderPipelineDescrip
     free(ptr);
 
 alloy c extern
-def RenderPipelineDescriptor.mk  (shaderModule : ShaderModule) (fState : FragmentState) : RenderPipelineDescriptor := {
+def RenderPipelineDescriptor.mk  (shaderModule : ShaderModule) (fState : FragmentState) : IO RenderPipelineDescriptor := {
   WGPUShaderModule * c_shaderModule = of_lean<ShaderModule>(shaderModule);
   WGPUFragmentState * fragmentState = of_lean<FragmentState>(fState);
 
   WGPURenderPipelineDescriptor * pipelineDesc = calloc(1,sizeof(WGPURenderPipelineDescriptor));
-
   pipelineDesc->nextInChain = NULL;
+
   pipelineDesc->vertex.bufferCount = 0;
   pipelineDesc->vertex.buffers = NULL;
   pipelineDesc->vertex.module = *c_shaderModule;
   pipelineDesc->vertex.entryPoint = "vs_main";
   pipelineDesc->vertex.constantCount = 0;
   pipelineDesc->vertex.constants = NULL;
+
   pipelineDesc->primitive.topology = WGPUPrimitiveTopology_TriangleList;
   pipelineDesc->primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
   pipelineDesc->primitive.frontFace = WGPUFrontFace_CCW;
   pipelineDesc->primitive.cullMode = WGPUCullMode_None;
-  pipelineDesc->layout = NULL;
+
   pipelineDesc->fragment = fragmentState;
   pipelineDesc->depthStencil = NULL;
   pipelineDesc->multisample.count = 1;
+  -- fprintf(stderr, "multisample mask size: %d", sizeof(pipelineDesc->multisample.mask)); -- Kiiya: I get 4, so 0xFFFFFFFF should be okay
   pipelineDesc->multisample.mask = 0xFFFFFFFF;
   pipelineDesc->multisample.alphaToCoverageEnabled = false;
+  pipelineDesc->layout = NULL;
 
-  return to_lean<RenderPipelineDescriptor>(pipelineDesc);
+  return lean_io_result_mk_ok(to_lean<RenderPipelineDescriptor>(pipelineDesc));
 }
 
 /-- # RenderPipeline -/
@@ -875,12 +886,12 @@ alloy c opaque_extern_type RenderPipeline => WGPURenderPipeline where
 
 -- TODO unclog that mess
 alloy c extern
-def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor): RenderPipeline := {
+def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor) : IO RenderPipeline := {
   WGPUDevice * c_device = of_lean<Device>(device);
   WGPURenderPipelineDescriptor * c_pipelineDesc = of_lean<RenderPipelineDescriptor>(pipelineDesc);
   WGPURenderPipeline * pipeline = calloc(1,sizeof(WGPURenderPipeline));
   *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, c_pipelineDesc);
-  return to_lean<RenderPipeline>(pipeline);
+  return lean_io_result_mk_ok(to_lean<RenderPipeline>(pipeline));
 }
 
 alloy c extern

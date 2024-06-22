@@ -8,7 +8,7 @@ open Wgpu
 set_option linter.unusedVariables false
 
 def triangle : IO Unit := do
-  let window ← GLFWwindow.mk 1366 768 "T R I A N G L E"
+  let window ← GLFWwindow.mk 640 480 "T R I A N G L E"
 
   let desc <- InstanceDescriptor.mk
   let inst <- createInstance desc
@@ -30,28 +30,27 @@ def triangle : IO Unit := do
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
 
-  let encoder ← device.createCommandEncoder
-  encoder.insertDebugMarker "rawr"
-
-  let texture_format := TextureFormat.get surface adapter
-
-  let surface_config := SurfaceConfiguration.mk 1366 768 device texture_format
+  let texture_format <- TextureFormat.get surface adapter
+  let surface_config <- SurfaceConfiguration.mk 640 480 device texture_format
   surface.configure surface_config
 
-  let shaderModuleWGSLDescriptor := ShaderModuleWGSLDescriptor.mk shaderSource
-  let shaderModuleDescriptor := ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
-  let shaderModule := ShaderModule.mk device shaderModuleDescriptor
+  sleep 100
 
-  let blendState := BlendState.mk shaderModule
-  let colorTargetState := ColorTargetState.mk texture_format blendState
-  let fragmentState := FragmentState.mk shaderModule colorTargetState
-  adapter.printProperties
-  let renderPipelineDescriptor := RenderPipelineDescriptor.mk shaderModule fragmentState
+  -- BEGIN "InitializePipeline"
+  let shaderModuleWGSLDescriptor <- ShaderModuleWGSLDescriptor.mk shaderSource
+  let shaderModuleDescriptor <- ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
+  let shaderModule <- ShaderModule.mk device shaderModuleDescriptor
 
-  let pipeline := RenderPipeline.mk device renderPipelineDescriptor
+  let blendState <- BlendState.mk shaderModule
+  let colorTargetState <- ColorTargetState.mk texture_format blendState
+  let fragmentState <- FragmentState.mk shaderModule colorTargetState
+  let renderPipelineDescriptor <- RenderPipelineDescriptor.mk shaderModule fragmentState
+  let pipeline <- RenderPipeline.mk device renderPipelineDescriptor
+  -- END "InitializePipeline"
+
+  -- * Pretty sure until this point, we are doing exactly what the tutorial is doing.
 
   while not (← window.shouldClose) do
-
     GLFW.pollEvents
     let texture ← surface.getCurrent
     let status ← texture.status
@@ -60,28 +59,20 @@ def triangle : IO Unit := do
     if !(←  targetView.is_valid) then
       -- println! "invalid"
       continue
+
     let encoder ← device.createCommandEncoder
     let renderPassEncoder ← RenderPassEncoder.mk encoder targetView
     renderPassEncoder.setPipeline pipeline
     renderPassEncoder.draw 3 1 0 0
     renderPassEncoder.end -- ! added this here
-    -- renderPassEncoder.release
+    renderPassEncoder.release
 
     let command <- encoder.finish
     queue.submit #[command]
+    -- command.release
     surface.present
-    device.poll
-    -- println! "polled"
-
-
-
-
-    -- pure ()
-    -- println! "polling !"
-    -- println! (repr <| texture.status)
-    -- surface.present
     -- device.poll
-    -- GLFW.pollEvents
+    -- println! "polled"
 
 
 def main : IO Unit := do
