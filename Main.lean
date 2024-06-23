@@ -28,32 +28,31 @@ def triangle : IO Unit := do
   device.setUncapturedErrorCallback fun code msg => do
     eprintln s!"uncaptured error, code{code}, message is \"{msg}\""
 
+  eprintln s!"Have features: {<- device.features}"
+
   let queue : Queue <- device.getQueue
   queue.onSubmittedWorkDone fun status => do
     eprintln s!"queue work done! status {status}"
 
-  let encoder ← device.createCommandEncoder
-  encoder.insertDebugMarker "rawr"
-
-  let texture_format := TextureFormat.get surface adapter
-
-  let surface_config := SurfaceConfiguration.mk 1366 768 device texture_format
+  let texture_format <- TextureFormat.get surface adapter
+  let surface_config <- SurfaceConfiguration.mk 640 480 device texture_format
   surface.configure surface_config
 
-  let shaderModuleWGSLDescriptor := ShaderModuleWGSLDescriptor.mk shaderSource
-  let shaderModuleDescriptor := ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
-  let shaderModule := ShaderModule.mk device shaderModuleDescriptor
+  -- BEGIN "InitializePipeline"
+  let shaderModuleWGSLDescriptor <- ShaderModuleWGSLDescriptor.mk shaderSource
+  let shaderModuleDescriptor <- ShaderModuleDescriptor.mk shaderModuleWGSLDescriptor
+  let shaderModule <- ShaderModule.mk device shaderModuleDescriptor
 
-  let blendState := BlendState.mk shaderModule
-  let colorTargetState := ColorTargetState.mk texture_format blendState
-  let fragmentState := FragmentState.mk shaderModule colorTargetState
-  adapter.printProperties
-  let renderPipelineDescriptor := RenderPipelineDescriptor.mk shaderModule fragmentState
+  let blendState <- BlendState.mk shaderModule
+  let colorTargetState <- ColorTargetState.mk texture_format blendState
+  let fragmentState <- FragmentState.mk shaderModule colorTargetState
+  let renderPipelineDescriptor <- RenderPipelineDescriptor.mk shaderModule fragmentState
+  let pipeline <- RenderPipeline.mk device renderPipelineDescriptor
+  -- END "InitializePipeline"
 
-  let pipeline := RenderPipeline.mk device renderPipelineDescriptor
+  -- * Pretty sure until this point, we are doing exactly what the tutorial is doing.
 
   while not (← window.shouldClose) do
-
     GLFW.pollEvents
     let texture ← surface.getCurrent
     let status ← texture.status
@@ -62,29 +61,17 @@ def triangle : IO Unit := do
     if !(←  targetView.is_valid) then
       -- println! "invalid"
       continue
+
     let encoder ← device.createCommandEncoder
     let renderPassEncoder ← RenderPassEncoder.mk encoder targetView
     renderPassEncoder.setPipeline pipeline
     renderPassEncoder.draw 3 1 0 0
-    renderPassEncoder.end -- ! added this here
-    -- renderPassEncoder.release
+    renderPassEncoder.end
 
     let command <- encoder.finish
     queue.submit #[command]
     surface.present
     device.poll
-    -- println! "polled"
-
-
-
-
-    -- pure ()
-    -- println! "polling !"
-    -- println! (repr <| texture.status)
-    -- surface.present
-    -- device.poll
-    -- GLFW.pollEvents
-
 
 def main : IO Unit := do
   triangle
