@@ -799,7 +799,7 @@ def ColorTargetState.mk (surfaceFormat : TextureFormat) (blendState : BlendState
   WGPUTextureFormat c_surfaceFormat = of_lean<TextureFormat>(surfaceFormat);
   WGPUBlendState * c_blendState = of_lean<BlendState>(blendState);
   WGPUColorTargetState * colorTarget = calloc(1,sizeof(WGPUColorTargetState));
-  colorTarget->format = surfaceFormat;
+  colorTarget->format = c_surfaceFormat;
   colorTarget->blend  = c_blendState;
   -- TODO add writeMask param
   colorTarget->writeMask = WGPUColorWriteMask_All; // We could write to only some of the color channels.
@@ -886,7 +886,7 @@ def RenderPipeline.mk (device : Device) (pipelineDesc : RenderPipelineDescriptor
 alloy c extern
 def RenderPassEncoder.setPipeline (r : RenderPassEncoder) (p : RenderPipeline) : IO Unit := {
   WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
-  WGPURenderPipeline * pipeline = of_lean<RenderPipeline>(r);
+  WGPURenderPipeline * pipeline = of_lean<RenderPipeline>(p);
   wgpuRenderPassEncoderSetPipeline(*renderPass, *pipeline);
   return lean_io_result_mk_ok(lean_box(0));
 }
@@ -902,5 +902,37 @@ alloy c extern
 def RenderPassEncoder.draw (r : RenderPassEncoder) (vShape n_inst i j : UInt32) : IO Unit := {
   WGPURenderPassEncoder * renderPass = of_lean<RenderPassEncoder>(r);
   wgpuRenderPassEncoderDraw(*renderPass, vShape, n_inst, i, j);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- # Logging -/
+
+alloy c enum LogLevel => WGPULogLevel
+| Off => WGPULogLevel_Off
+| Error => WGPULogLevel_Error
+| Warn => WGPULogLevel_Warn
+| Info => WGPULogLevel_Info
+| Debug => WGPULogLevel_Debug
+| Trace => WGPULogLevel_Trace
+| Force32 => WGPULogLevel_Force32
+deriving Repr, BEq, Inhabited
+
+alloy c section
+  void onLog(WGPULogLevel level, const char* message, void* closure) {
+    lean_closure_object *l_closure = lean_to_closure((lean_object *) closure);
+    lean_object *l_message = lean_mk_string(message);
+    lean_object *res = lean_apply_3((lean_object *) l_closure, lean_box(to_lean<LogLevel>(level)), l_message, lean_io_mk_world());
+    if (!lean_io_result_is_ok(res)) {
+      -- TODO: What if the closure itself errors?
+      fprintf(stderr, "onLog closure errored out!\n");
+      abort();
+    }
+  }
+end
+
+alloy c extern def setLogCallback (logFunction : LogLevel -> String -> IO Unit) : IO Unit := {
+  wgpuSetLogLevel(WGPULogLevel_Trace);
+  lean_inc(logFunction);
+  wgpuSetLogCallback(onLog, (void*)logFunction);
   return lean_io_result_mk_ok(lean_box(0));
 }
