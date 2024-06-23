@@ -6,6 +6,7 @@ open Wgpu
 
 alloy c section
   #include <stdio.h>
+  #include <stdlib.h>
   #include <lean/lean.h>
   #include <GLFW/glfw3.h>
   #include <glfw3webgpu.h>
@@ -57,7 +58,7 @@ alloy c extern def getSurface (inst : Instance) (window : GLFWwindow) : IO Surfa
   WGPUInstance *c_inst = of_lean<Instance>(inst);
   GLFWwindow *c_window = of_lean<GLFWwindow>(window);
 
-  WGPUSurface *surface = malloc(sizeof(WGPUSurface));
+  WGPUSurface *surface = calloc(1,sizeof(WGPUSurface));
   *surface = glfwGetWGPUSurface(*c_inst, c_window);
   return lean_io_result_mk_ok(to_lean<Surface>(surface));
 }

@@ -84,7 +84,8 @@ section Glfw
       args ++ #[
         "-I", __dir__ / wgpu_native_dir |>.toString,
         "-I", __dir__ / "glfw3webgpu" |>.toString,
-        "-fPIC"
+        "-fPIC",
+        "-Wall"
       ]
 
     moreLinkArgs := if getOS == .macos
@@ -109,6 +110,7 @@ end wgpu_native
 
 lean_lib Wgpu where
   moreLeancArgs := #[
+    "-Wall",
     "-fPIC"
   ]
   weakLeancArgs :=

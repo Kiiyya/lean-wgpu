@@ -8,6 +8,7 @@ open Wgpu
 set_option linter.unusedVariables false
 
 def triangle : IO Unit := do
+  setLogCallback fun lvl msg => eprintln s!"[{repr lvl}] {msg}"
   let window ← GLFWwindow.mk 640 480 "T R I A N G L E"
 
   let desc <- InstanceDescriptor.mk
