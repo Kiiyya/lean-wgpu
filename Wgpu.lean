@@ -979,3 +979,62 @@ alloy c extern def setLogCallback (logFunction : LogLevel -> String -> IO Unit) 
   wgpuSetLogCallback(onLog, (void*)logFunction);
   return lean_io_result_mk_ok(lean_box(0));
 }
+
+/- # BufferDescriptor -/
+
+alloy c opaque_extern_type BufferDescriptor => WGPUBufferDescriptor where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUBufferDescriptor \n");
+    free(ptr);
+
+abbrev BufferUsage := UInt32
+def BufferUsage.none         := 0x00000000
+def BufferUsage.mapRead      := 0x00000001
+def BufferUsage.mapWrite     := 0x00000002
+def BufferUsage.copySrc      := 0x00000004
+def BufferUsage.copyDst      := 0x00000008
+def BufferUsage.index        := 0x00000010
+def BufferUsage.vertex       := 0x00000020
+def BufferUsage.uniform      := 0x00000040
+def BufferUsage.storage      := 0x00000080
+def BufferUsage.indirect     := 0x00000100
+def BufferUsage.queryResolve := 0x00000200
+def BufferUsage.force32      := 0x7FFFFFFF
+
+alloy c extern
+def BufferDescriptor.mk (label : String) (usage : BufferUsage)
+  (size : UInt32) (mappedAtCreation : Bool) : BufferDescriptor := {
+  WGPUBufferDescriptor * bufferDesc = calloc(1,sizeof(WGPUBufferDescriptor));
+  bufferDesc->nextInChain = NULL;
+  bufferDesc->label = lean_string_cstr(label);
+  bufferDesc->usage = usage;
+  bufferDesc->size = size;
+  bufferDesc->mappedAtCreation = mappedAtCreation;
+  return to_lean<BufferDescriptor>(bufferDesc);
+  }
+
+/- # Buffer -/
+
+alloy c opaque_extern_type Buffer => WGPUBuffer where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUBuffer \n");
+    wgpuBufferRelease(*ptr);
+    free(ptr);
+
+alloy c extern
+def Buffer.mk (device : Device) (descriptor : BufferDescriptor) : IO Buffer := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  WGPUBufferDescriptor * bufferDesc = of_lean<BufferDescriptor>(descriptor);
+  WGPUBuffer * buffer = calloc(1,sizeof(WGPUBuffer));
+  *buffer = wgpuDeviceCreateBuffer(c_device, bufferDesc);
+  return lean_io_result_mk_ok(to_lean<Buffer>(buffer));
+}
+alloy c extern
+def Queue.writeBuffer (queue : Queue) (buffer : Buffer) (bytes : ByteArray) : IO Unit := {
+    WGPUQueue c_queue= *of_lean<Queue>(queue);
+    WGPUBuffer c_buffer = *of_lean<Buffer>(buffer);
+    uint8_t* arr = lean_sarray_cptr(bytes);
+    size_t arr_size = lean_sarray_size(bytes);
+    wgpuQueueWriteBuffer(c_queue, c_buffer, 0, arr, arr_size);
+    return lean_io_result_mk_ok(lean_box(0));
+}
