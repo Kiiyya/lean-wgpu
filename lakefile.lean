@@ -1,9 +1,10 @@
 import Lake
 open Lake DSL
+open System
 
 package Wgpu
 
-require alloy from git "https://github.com/tydeu/lean4-alloy/" @ "master"
+require alloy from git "https://github.com/sio-funmatsu/lean4-alloy/" @ "master"
 
 section Platform
   inductive Arch where
@@ -13,10 +14,10 @@ section Platform
 
   def systemCommand (cmd : String) (args : Array String): IO String := do
     let out ← IO.Process.output {cmd, args, stdin := .null}
-    return out.stdout.trim
+    return out.stdout.trimAscii.toString
 
   -- Inspired by from https://github.com/lean-dojo/LeanCopilot/blob/main/lakefile.lean
-  def getArch? : IO (Option String) := systemCommand "uname" #["-m"]
+  def getArch? : IO String := systemCommand "uname" #["-m"]
 
   def getArch : Arch :=
     match run_io getArch? with
@@ -28,15 +29,14 @@ section Platform
   inductive OS where | windows | linux | macos
   deriving Inhabited, BEq, Repr
 
-  open System in
   def getOS : OS :=
     if Platform.isWindows then .windows
     else if Platform.isOSX then .macos
     else .linux
 end Platform
 
-module_data alloy.c.o.export : BuildJob FilePath
-module_data alloy.c.o.noexport : BuildJob FilePath
+module_data alloy.c.o.export : FilePath
+module_data alloy.c.o.noexport : FilePath
 
 -- TODO: download wgpu automatically.
 -- Download manually from: https://github.com/gfx-rs/wgpu-native/releases
@@ -74,7 +74,7 @@ target glfw3webgpu pkg : FilePath := do
         "-I", pkg.dir / wgpu_native_dir |>.toString
       ]
   }
-  inputFile <| pkg.dir / "glfw3webgpu" / "glfw3webgpu.o"
+  inputBinFile <| pkg.dir / "glfw3webgpu" / "glfw3webgpu.o"
 
 section Glfw
   /-- I guess long-term we'll extract Glfw bindings into its own repo? -/
@@ -97,14 +97,14 @@ section Glfw
       else #[]
     precompileModules := true
     nativeFacets := fun shouldExport =>
-      if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
-      else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+      if shouldExport then #[Module.oExportFacet, `module.alloy.c.o.export]
+      else #[Module.oNoExportFacet, `module.alloy.c.o.noexport]
     extraDepTargets := #[`glfw3webgpu]
 end Glfw
 
 section wgpu_native
   extern_lib wgpu_native pkg :=
-    inputFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
+    inputBinFile <| pkg.dir / wgpu_native_dir / nameToStaticLib "wgpu_native"
 end wgpu_native
 
 
@@ -120,8 +120,8 @@ lean_lib Wgpu where
   ]
   precompileModules := true
   nativeFacets := fun shouldExport =>
-    if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
-    else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+    if shouldExport then #[Module.oExportFacet, `module.alloy.c.o.export]
+    else #[Module.oNoExportFacet, `module.alloy.c.o.noexport]
   extraDepTargets := #[`glfw3webgpu]
 
 @[default_target]
@@ -137,10 +137,10 @@ lean_exe helloworld where
       ]
       else #[
         "./glfw3webgpu/glfw3webgpu.o",
-        "-lglfw"
+        "-L/usr/lib/x86_64-linux-gnu", "-lglfw"
       ]
   root := `Main
   extraDepTargets := #[`glfw3webgpu]
   nativeFacets := fun shouldExport =>
-    if shouldExport then #[Module.oExportFacet, `alloy.c.o.export]
-    else #[Module.oNoExportFacet, `alloy.c.o.noexport]
+    if shouldExport then #[Module.oExportFacet, `module.alloy.c.o.export]
+    else #[Module.oNoExportFacet, `module.alloy.c.o.noexport]

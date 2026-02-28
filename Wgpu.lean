@@ -12,23 +12,11 @@ alloy c include <wgpu.h>
 alloy c include <webgpu.h>
 
 alloy c section
-  -- hacky. Copied from the compiled output from lean runtime
-  extern lean_object* lean_io_promise_new(lean_object* seemsNotUsed);
-  extern lean_object* lean_io_promise_resolve(lean_object* value, lean_object* promise, lean_object* seemsNotUsed);
-
-  lean_task_object *promise_mk() {
-    lean_object *io_res = lean_io_promise_new(lean_io_mk_world());
-    if (!lean_io_result_is_ok(io_res)) {
-      fprintf(stderr, "Failed to create promise\n");
-      abort(); -- In Lean, `Promise.new` is infallible, so we just abort if it ever actually fail (it won't).
-    }
-    lean_task_object *promise = lean_to_task(lean_io_result_get_value(io_res));
-    return promise;
-  }
-
-  void promise_resolve(lean_task_object *promise, lean_object *value) {
-    lean_io_promise_resolve(value, (lean_object*)promise, lean_io_mk_world());
-  }
+  -- Userdata struct for synchronous wgpu callbacks.
+  -- wgpu-native v0.19 calls request callbacks synchronously before the request function returns.
+  typedef struct {
+    lean_object *result;
+  } wgpu_callback_data;
 end
 
 /- # Instance -/
@@ -84,18 +72,18 @@ alloy c opaque_extern_type Adapter => WGPUAdapter where
     free(ptr);
 
 alloy c section
-  void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void* promise) {
+  void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void* userdata) {
+    wgpu_callback_data *data = (wgpu_callback_data*)userdata;
     if (status == WGPURequestAdapterStatus_Success) {
       WGPUAdapter *a = (WGPUAdapter*)calloc(1,sizeof(WGPUAdapter));
       *a = adapter;
       fprintf(stderr, "Got adapter: %p\n", a);
 
       lean_object* l_adapter = to_lean<Adapter>(a);
-      -- Promise type is `Except IO.Error Adapter`
-      promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_adapter));
+      data->result = lean_io_result_mk_ok(l_adapter);
     } else {
       fprintf(stderr, "Could not get WebGPU adapter: %s\n", message);
-      promise_resolve((lean_task_object*) promise, lean_io_result_mk_error(lean_box(0)));
+      data->result = lean_io_result_mk_error(lean_box(0));
     }
   }
 end
@@ -109,15 +97,16 @@ def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Resu
   adapterOpts->compatibleSurface = *of_lean<Surface>(surface);
   -- adapterOpts.backendType = WGPUBackendType_OpenGLES;
 
-  lean_task_object *promise = promise_mk();
+  wgpu_callback_data cb_data = {0};
   -- Note that the adapter maintains an internal (wgpu) reference to the WGPUInstance, according to the C++ guide: "We will no longer need to use the instance once we have selected our adapter, so we can call wgpuInstanceRelease(instance) right after the adapter request instead of at the very end. The underlying instance object will keep on living until the adapter gets released but we do not need to manager this."
   wgpuInstanceRequestAdapter( -- ! RealWorld
       *inst,
       adapterOpts,
       onAdapterRequestEnded,
-      (void*)promise
+      (void*)&cb_data
   );
-  return lean_io_result_mk_ok((lean_object*) promise);
+  lean_object *task = lean_task_pure(cb_data.result);
+  return lean_io_result_mk_ok(task);
 }
 
 alloy c extern
@@ -222,15 +211,16 @@ alloy c opaque_extern_type Device => WGPUDevice where
     free(ptr);
 
 alloy c section
-  void onAdapterRequestDeviceEnded(WGPURequestDeviceStatus status, WGPUDevice device, char const *message, void *promise) {
+  void onAdapterRequestDeviceEnded(WGPURequestDeviceStatus status, WGPUDevice device, char const *message, void *userdata) {
+    wgpu_callback_data *data = (wgpu_callback_data*)userdata;
     if (status == WGPURequestDeviceStatus_Success) {
       WGPUDevice *d = calloc(1,sizeof(WGPUDevice));
       *d = device;
       lean_object* l_device = to_lean<Device>(d);
-      promise_resolve((lean_task_object*) promise, lean_io_result_mk_ok(l_device));
+      data->result = lean_io_result_mk_ok(l_device);
     } else {
       fprintf(stderr, "Could not get WebGPU device: %s\n", message);
-      promise_resolve((lean_task_object*) promise, lean_io_result_mk_error(lean_box(0)));
+      data->result = lean_io_result_mk_error(lean_box(0));
     }
   }
 end
@@ -239,14 +229,15 @@ alloy c extern def Adapter.requestDevice (l_adapter : Adapter) (l_ddesc : Device
   WGPUAdapter *adapter = of_lean<Adapter>(l_adapter);
   LWGPUDeviceDescriptor *ddesc = of_lean<DeviceDescriptor>(l_ddesc);
 
-  lean_task_object *promise = promise_mk();
+  wgpu_callback_data cb_data = {0};
   wgpuAdapterRequestDevice( -- ! RealWorld
       *adapter,
       &ddesc->desc,
       onAdapterRequestDeviceEnded,
-      (void*)promise
+      (void*)&cb_data
   );
-  return lean_io_result_mk_ok((lean_object*) promise);
+  lean_object *task = lean_task_pure(cb_data.result);
+  return lean_io_result_mk_ok(task);
 }
 
 alloy c extern def Device.poll (device : Device) : IO Unit := {
