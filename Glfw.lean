@@ -17,7 +17,7 @@ alloy c opaque_extern_type GLFWwindow => GLFWwindow where
     fprintf(stderr, "finalize GLFWwindow\n");
     glfwDestroyWindow(ptr);
     glfwTerminate();
-    free(ptr);
+    -- NOTE: do NOT free(ptr) — GLFW owns this memory, glfwDestroyWindow handles it.
 
 -- TODO add `GLFWmonitor` and `GLFWwindow`
 /-(title : String)-/

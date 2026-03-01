@@ -25,6 +25,10 @@ end
 alloy c opaque_extern_type InstanceDescriptor => WGPUInstanceDescriptor where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUInstanceDescriptor\n");
+    -- Free the chained WGPUInstanceExtras if present
+    if (ptr->nextInChain != NULL) {
+      free((void*)ptr->nextInChain);
+    }
     free(ptr);
 
 alloy c opaque_extern_type Instance => WGPUInstance where
@@ -94,7 +98,8 @@ def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Resu
   WGPUInstance *inst = of_lean<Instance>(l_inst);
   WGPURequestAdapterOptions *adapterOpts = calloc(1, sizeof(WGPURequestAdapterOptions));
   adapterOpts->nextInChain = NULL;
-  lean_inc(surface); -- ! memory leak, need to dec later.
+  -- Surface handle is copied by value; wgpu internally references the surface.
+  -- No need to lean_inc — we just read the WGPUSurface handle.
   adapterOpts->compatibleSurface = *of_lean<Surface>(surface);
   -- adapterOpts.backendType = WGPUBackendType_OpenGLES;
 
@@ -106,6 +111,7 @@ def Instance.requestAdapter (l_inst : Instance) (surface : Surface): IO (A (Resu
       onAdapterRequestEnded,
       (void*)&cb_data
   );
+  free(adapterOpts);
   lean_object *task = lean_task_pure(cb_data.result);
   return lean_io_result_mk_ok(task);
 }
@@ -195,7 +201,7 @@ alloy c extern def DeviceDescriptor.mk
   desc->desc.requiredLimits = NULL;
   desc->desc.defaultQueue.nextInChain = NULL;
   desc->desc.defaultQueue.label = "The default queue";
-  lean_inc(onDeviceLost); -- TODO Not sure if we need this, but if yes: When does it get decremented? ==> Memory leak!
+  lean_inc(onDeviceLost); -- Leaks: wgpu stores this forever; we'd need a custom destructor hook to dec it.
   desc->desc.deviceLostCallback = onDeviceLostCallback; -- the C function, which then actually...
   desc->desc.deviceLostUserdata = onDeviceLost;         -- ...invokes this Lean closure :D
   desc->l_label = (lean_string_object *) l_label;
@@ -270,10 +276,11 @@ alloy c extern def Device.features (device : Device) : IO (Array Feature) := {
   size_t n = wgpuDeviceEnumerateFeatures(c_device, NULL);
   WGPUFeatureName *features = calloc(n, sizeof(WGPUFeatureName));
   wgpuDeviceEnumerateFeatures(c_device, features);
-  lean_object *array = lean_mk_array(lean_box(0), lean_box(0)); -- not sure what the second param is for
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
   for (size_t i = 0; i < n; i++) {
-    lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+    array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
   }
+  free(features);
   return lean_io_result_mk_ok(array);
 }
 
@@ -299,7 +306,7 @@ alloy c extern def Device.setUncapturedErrorCallback
   : IO Unit :=
 {
   WGPUDevice *device = of_lean<Device>(l_device);
-  lean_inc(onDeviceError); -- ! Memory leak
+  lean_inc(onDeviceError); -- Leaks: wgpu stores callback forever. One per device lifetime, acceptable.
   wgpuDeviceSetUncapturedErrorCallback(*device, onDeviceUncapturedErrorCallback, onDeviceError);
   return lean_io_result_mk_ok(lean_box(0));
 }
@@ -331,9 +338,9 @@ alloy c extern def Device.createCommandEncoder (device : Device) : IO CommandEnc
   return lean_io_result_mk_ok(to_lean<CommandEncoder>(encoder));
 }
 
-alloy c extern def CommandEncoder.insertDebugMarker (encoder : CommandEncoder) (s : String) : IO Unit := {
+alloy c extern def CommandEncoder.insertDebugMarker (encoder : CommandEncoder) (s : @& String) : IO Unit := {
   WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
-  lean_inc(s); -- ! Memory leak
+  -- wgpu copies the string internally, no need to retain it
   wgpuCommandEncoderInsertDebugMarker(*c_encoder, lean_string_cstr(s));
   return lean_io_result_mk_ok(lean_box(0));
 }
@@ -638,6 +645,7 @@ def TextureView.mk (surfaceTexture : SurfaceTexture): IO TextureView := {
 
   WGPUTextureView * targetView = calloc(1,sizeof(WGPUTextureView));
   *targetView = wgpuTextureCreateView(surface_texture->texture, viewDescriptor);
+  free(viewDescriptor);
   return lean_io_result_mk_ok(to_lean<TextureView>(targetView));
 }
 
@@ -706,16 +714,17 @@ def RenderPassEncoder.mk (encoder : CommandEncoder) (view : TextureView): IO Ren
   WGPURenderPassEncoder * renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
 
+  free(renderPassColorAttachment);
+  free(renderPassDesc);
+
   -- ! This was the culprit: wgpuRenderPassEncoderEnd(*renderPass);
   return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
-alloy c extern
-def RenderPassEncoder.release (renderPass : RenderPassEncoder) : IO Unit := {
-    WGPURenderPassEncoder * render_pass = of_lean<RenderPassEncoder>(renderPass);
-    wgpuRenderPassEncoderRelease(*render_pass);
-    return lean_io_result_mk_ok(lean_box(0));
-}
+/-- Release a render pass encoder.
+    NOTE: The finalizer also releases, so this is intentionally a no-op to prevent double-release.
+    Kept for API compatibility — call it for readability, but the real release happens via GC. -/
+def RenderPassEncoder.release (_ : RenderPassEncoder) : IO Unit := pure ()
 
 
 
@@ -746,6 +755,9 @@ alloy c opaque_extern_type ShaderModuleWGSLDescriptor => WGPUShaderModuleWGSLDes
     -- wgpuRenderPipelineRelease(*ptr);
     free(ptr);
 
+/-- WARNING: Stores a pointer into the Lean String's buffer for `code`.
+    Safe only because `ShaderModuleDescriptor.mk` → `ShaderModule.mk` → `wgpuDeviceCreateShaderModule`
+    copies the string. Do NOT store this descriptor long-term. -/
 -- TODO put shaderSource as parameter to the function (how to transform String into char* ?)
 alloy c extern
 def ShaderModuleWGSLDescriptor.mk (shaderSource : String) : IO ShaderModuleWGSLDescriptor := {
@@ -1021,6 +1033,10 @@ def BufferUsage.indirect     : BufferUsage := 0x00000100
 def BufferUsage.queryResolve : BufferUsage := 0x00000200
 def BufferUsage.force32      : BufferUsage := 0x7FFFFFFF
 
+/-- WARNING: Stores a raw pointer to the Lean string's internal buffer without retaining
+    the Lean string object. Safe only because descriptors are consumed immediately by
+    `Buffer.mk` → `wgpuDeviceCreateBuffer`, which copies the label. Do NOT store this
+    descriptor long-term without also keeping the label String alive. -/
 alloy c extern
 def BufferDescriptor.mk (label : String) (usage : BufferUsage)
   (size : UInt32) (mappedAtCreation : Bool) : BufferDescriptor := {
@@ -1219,6 +1235,10 @@ def RenderPassEncoder.mkWithColor (encoder : CommandEncoder) (view : TextureView
 
   WGPURenderPassEncoder *renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+
+  free(renderPassColorAttachment);
+  free(renderPassDesc);
+
   return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
@@ -1601,7 +1621,7 @@ alloy c extern def Adapter.features (adapter : Adapter) : IO (Array Feature) := 
   wgpuAdapterEnumerateFeatures(c_adapter, features);
   lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
   for (size_t i = 0; i < n; i++) {
-    lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+    array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
   }
   free(features);
   return lean_io_result_mk_ok(array);
@@ -2315,6 +2335,11 @@ def RenderPassEncoder.mkWithDepth (encoder : CommandEncoder)
 
   WGPURenderPassEncoder *renderPass = calloc(1, sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+
+  free(colorAttachment);
+  free(depthAttachment);
+  free(renderPassDesc);
+
   return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
@@ -2714,6 +2739,10 @@ def RenderPassEncoder.mkMultiColor (encoder : CommandEncoder)
 
   WGPURenderPassEncoder *renderPass = calloc(1, sizeof(WGPURenderPassEncoder));
   *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, desc);
+
+  free(attachments);
+  free(desc);
+
   return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
 }
 
@@ -3356,6 +3385,7 @@ def RenderPipelineDescriptor.mkWithStencil
       c_buffers[i].attributeCount = attr_count;
       c_buffers[i].attributes = c_attrs;
     }
+    free(attr_arrays);
   }
 
   // Extract stencil face state fields
@@ -3893,6 +3923,7 @@ def RenderPipelineDescriptor.mkDepthOnly
       c_buffers[i].attributeCount = attr_count;
       c_buffers[i].attributes = c_attrs;
     }
+    free(attr_arrays);
   }
 
   WGPURenderPipelineDescriptor *desc = calloc(1, sizeof(WGPURenderPipelineDescriptor));
