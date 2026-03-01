@@ -42,7 +42,22 @@ def InstanceDescriptor.mk : IO InstanceDescriptor := {
   fprintf(stderr, "mk WGPUInstanceDescriptor\n");
   WGPUInstanceExtras * instanceExtras = calloc(1,sizeof(WGPUInstanceExtras));
   instanceExtras->chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
-  instanceExtras->backends = WGPUInstanceBackend_GL;
+  instanceExtras->backends = WGPUInstanceBackend_Primary;
+
+  WGPUInstanceDescriptor* desc = calloc(1,sizeof(WGPUInstanceDescriptor));
+  desc->nextInChain = &instanceExtras->chain;
+  return lean_io_result_mk_ok(to_lean<InstanceDescriptor>(desc));
+}
+
+/-- Create an instance descriptor with a specific set of backend flags.
+    Use InstanceBackend constants (e.g. `InstanceBackend.vulkan`).
+    Combine with `|||`. Pass `InstanceBackend.all` for all backends. -/
+alloy c extern
+def InstanceDescriptor.mkWithBackends (backends : UInt32) : IO InstanceDescriptor := {
+  fprintf(stderr, "mk WGPUInstanceDescriptor (backends=0x%x)\n", backends);
+  WGPUInstanceExtras * instanceExtras = calloc(1,sizeof(WGPUInstanceExtras));
+  instanceExtras->chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
+  instanceExtras->backends = (WGPUInstanceBackendFlags)backends;
 
   WGPUInstanceDescriptor* desc = calloc(1,sizeof(WGPUInstanceDescriptor));
   desc->nextInChain = &instanceExtras->chain;
@@ -53,11 +68,33 @@ alloy c extern
 def createInstance (desc : InstanceDescriptor) : IO Instance := {
   fprintf(stderr, "mk WGPUInstance\n");
   WGPUInstance *inst = calloc(1,sizeof(WGPUInstance));
-  -- *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc)); -- ! RealWorld
-  *inst = wgpuCreateInstance(NULL); -- ! RealWorld
+  *inst = wgpuCreateInstance(of_lean<InstanceDescriptor>(desc));
+  if (*inst == NULL) {
+    return lean_io_result_mk_error(lean_mk_io_user_error(
+      lean_mk_string("wgpuCreateInstance returned NULL")));
+  }
   fprintf(stderr, "mk WGPUInstance done!\n");
   return lean_io_result_mk_ok(to_lean<Instance>(inst));
 }
+
+/-- Backend flag: all backends (0x0 = default all) -/
+def InstanceBackend.all       : UInt32 := 0x00000000
+/-- Backend flag: Vulkan -/
+def InstanceBackend.vulkan    : UInt32 := 0x00000001
+/-- Backend flag: OpenGL -/
+def InstanceBackend.gl        : UInt32 := 0x00000002
+/-- Backend flag: Metal -/
+def InstanceBackend.metal     : UInt32 := 0x00000004
+/-- Backend flag: DirectX 12 -/
+def InstanceBackend.dx12      : UInt32 := 0x00000008
+/-- Backend flag: DirectX 11 -/
+def InstanceBackend.dx11      : UInt32 := 0x00000010
+/-- Backend flag: Browser WebGPU -/
+def InstanceBackend.browserWebGPU : UInt32 := 0x00000020
+/-- Backend flags: primary backends (Vulkan | Metal | DX12 | BrowserWebGPU) -/
+def InstanceBackend.primary   : UInt32 := InstanceBackend.vulkan ||| InstanceBackend.metal ||| InstanceBackend.dx12 ||| InstanceBackend.browserWebGPU
+/-- Backend flags: secondary backends (GL | DX11) -/
+def InstanceBackend.secondary : UInt32 := InstanceBackend.gl ||| InstanceBackend.dx11
 
 /- # Surface
   e.g. from GLFW -/
@@ -214,6 +251,7 @@ alloy c extern def DeviceDescriptor.mk
 alloy c opaque_extern_type Device => WGPUDevice where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUDevice\n");
+    wgpuDeviceDestroy(*ptr);
     wgpuDeviceRelease(*ptr);
     free(ptr);
 
@@ -278,7 +316,39 @@ alloy c extern def Device.features (device : Device) : IO (Array Feature) := {
   wgpuDeviceEnumerateFeatures(c_device, features);
   lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
   for (size_t i = 0; i < n; i++) {
-    array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+    switch (features[i]) {
+      case WGPUFeatureName_Undefined:
+      case WGPUFeatureName_DepthClipControl:
+      case WGPUFeatureName_Depth32FloatStencil8:
+      case WGPUFeatureName_TimestampQuery:
+      case WGPUFeatureName_TextureCompressionBC:
+      case WGPUFeatureName_TextureCompressionETC2:
+      case WGPUFeatureName_TextureCompressionASTC:
+      case WGPUFeatureName_IndirectFirstInstance:
+      case WGPUFeatureName_ShaderF16:
+      case WGPUFeatureName_RG11B10UfloatRenderable:
+      case WGPUFeatureName_BGRA8UnormStorage:
+      case WGPUFeatureName_Float32Filterable:
+        array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+        break;
+      default:
+        break;
+    }
+  }
+  free(features);
+  return lean_io_result_mk_ok(array);
+}
+
+/-- Query all features supported by the adapter as raw UInt32 values.
+    This includes native/extension features not in the Feature enum. -/
+alloy c extern def Adapter.featuresRaw (adapter : Adapter) : IO (Array UInt32) := {
+  WGPUAdapter c_adapter = *of_lean<Adapter>(adapter);
+  size_t n = wgpuAdapterEnumerateFeatures(c_adapter, NULL);
+  WGPUFeatureName *features = calloc(n, sizeof(WGPUFeatureName));
+  wgpuAdapterEnumerateFeatures(c_adapter, features);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
+  for (size_t i = 0; i < n; i++) {
+    array = lean_array_push(array, lean_box((uint32_t)features[i]));
   }
   free(features);
   return lean_io_result_mk_ok(array);
@@ -1054,6 +1124,7 @@ def BufferDescriptor.mk (label : String) (usage : BufferUsage)
 alloy c opaque_extern_type Buffer => WGPUBuffer where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUBuffer \n");
+    wgpuBufferDestroy(*ptr);
     wgpuBufferRelease(*ptr);
     free(ptr);
 
@@ -1092,6 +1163,9 @@ def Buffer.getSize (buffer : Buffer) : IO UInt64 := {
     return lean_io_result_mk_ok(lean_box_uint64(sz));
 }
 
+/-- Destroy a buffer's GPU resources immediately.
+    NOTE: The finalizer also calls destroy+release, so this is optional.
+    Use it to reclaim GPU memory earlier than GC would. -/
 alloy c extern
 def Buffer.destroy (buffer : Buffer) : IO Unit := {
     WGPUBuffer c_buffer = *of_lean<Buffer>(buffer);
@@ -1613,7 +1687,8 @@ def Adapter.hasFeature (adapter : Adapter) (feature : Feature) : IO Bool := {
   return lean_io_result_mk_ok(lean_box(has));
 }
 
-/-- Query all features supported by the adapter. -/
+/-- Query all features supported by the adapter.
+    Note: features not in the Feature enum are silently skipped. -/
 alloy c extern def Adapter.features (adapter : Adapter) : IO (Array Feature) := {
   WGPUAdapter c_adapter = *of_lean<Adapter>(adapter);
   size_t n = wgpuAdapterEnumerateFeatures(c_adapter, NULL);
@@ -1621,7 +1696,25 @@ alloy c extern def Adapter.features (adapter : Adapter) : IO (Array Feature) := 
   wgpuAdapterEnumerateFeatures(c_adapter, features);
   lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
   for (size_t i = 0; i < n; i++) {
-    array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+    -- Only include features that map to known enum variants
+    switch (features[i]) {
+      case WGPUFeatureName_Undefined:
+      case WGPUFeatureName_DepthClipControl:
+      case WGPUFeatureName_Depth32FloatStencil8:
+      case WGPUFeatureName_TimestampQuery:
+      case WGPUFeatureName_TextureCompressionBC:
+      case WGPUFeatureName_TextureCompressionETC2:
+      case WGPUFeatureName_TextureCompressionASTC:
+      case WGPUFeatureName_IndirectFirstInstance:
+      case WGPUFeatureName_ShaderF16:
+      case WGPUFeatureName_RG11B10UfloatRenderable:
+      case WGPUFeatureName_BGRA8UnormStorage:
+      case WGPUFeatureName_Float32Filterable:
+        array = lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+        break;
+      default:
+        break;  -- skip native/unknown features
+    }
   }
   free(features);
   return lean_io_result_mk_ok(array);
@@ -1731,6 +1824,7 @@ def TextureUsage.renderAttachment : TextureUsage := 0x00000010
 alloy c opaque_extern_type Texture => WGPUTexture where
   finalize(ptr) :=
     fprintf(stderr, "finalize WGPUTexture\n");
+    wgpuTextureDestroy(*ptr);
     wgpuTextureRelease(*ptr);
     free(ptr);
 
@@ -1809,7 +1903,9 @@ def Queue.writeTexture (queue : Queue) (texture : Texture) (data : ByteArray)
   return lean_io_result_mk_ok(lean_box(0));
 }
 
-/-- Destroy a texture object. -/
+/-- Destroy a texture's GPU resources immediately.
+    NOTE: The finalizer also calls destroy+release, so this is optional.
+    Use it to reclaim GPU memory earlier than GC would. -/
 alloy c extern
 def Texture.destroy (texture : Texture) : IO Unit := {
   WGPUTexture *c_tex = of_lean<Texture>(texture);
@@ -3002,7 +3098,9 @@ def Device.popErrorScope (device : Device) : IO (UInt32 × String) := {
 
 /- # Device Destroy -/
 
-/-- Destroy a device explicitly. -/
+/-- Destroy a device's GPU resources immediately.
+    NOTE: The finalizer also calls destroy+release, so this is optional.
+    Use it to shut down the device earlier than GC would. -/
 alloy c extern
 def Device.destroy (device : Device) : IO Unit := {
   WGPUDevice *c_device = of_lean<Device>(device);
@@ -3029,6 +3127,7 @@ deriving Inhabited, Repr, BEq
 
 alloy c opaque_extern_type QuerySet => WGPUQuerySet where
   finalize(ptr) :=
+    wgpuQuerySetDestroy(*ptr);
     wgpuQuerySetRelease(*ptr);
     free(ptr);
 
@@ -3047,7 +3146,9 @@ def Device.createQuerySet (device : Device) (queryType : QueryType) (count : UIn
   return lean_io_result_mk_ok(to_lean<QuerySet>(qs));
 }
 
-/-- Destroy a query set. -/
+/-- Destroy a query set's GPU resources immediately.
+    NOTE: The finalizer also calls destroy+release, so this is optional.
+    Use it to reclaim GPU memory earlier than GC would. -/
 alloy c extern
 def QuerySet.destroy (qs : QuerySet) : IO Unit := {
   WGPUQuerySet *c_qs = of_lean<QuerySet>(qs);
@@ -4017,5 +4118,658 @@ def byteArrayToUInt64s (arr : @& ByteArray) : Array UInt64 := {
   }
   return result;
 }
+
+/- ################################################################## -/
+/- # Writable Buffer Mapping                                          -/
+/- ################################################################## -/
+
+/-- Map a buffer for writing. Blocks until mapping is complete by polling the device. -/
+alloy c extern
+def Buffer.mapWrite (buffer : Buffer) (device : Device) (offset : UInt64 := 0) (size : UInt64 := 0) : IO Unit := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  WGPUDevice *c_device = of_lean<Device>(device);
+  uint64_t mapSize = size;
+  if (mapSize == 0) {
+    mapSize = wgpuBufferGetSize(*c_buffer) - offset;
+  }
+  wgpu_callback_data cb_data = {0};
+  wgpuBufferMapAsync(*c_buffer, WGPUMapMode_Write, offset, mapSize, onBufferMappedCallback, &cb_data);
+  while (cb_data.result == NULL) {
+    wgpuDevicePoll(*c_device, true, NULL);
+  }
+  return cb_data.result;
+}
+
+/-- Get the writable mapped range of a buffer and write data to it.
+    This copies the ByteArray content into the mapped GPU memory. -/
+alloy c extern
+def Buffer.writeMappedRange (buffer : Buffer) (data : @& ByteArray) (offset : UInt64 := 0) : IO Unit := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  uint64_t mapSize = lean_sarray_size(data);
+  void *ptr = wgpuBufferGetMappedRange(*c_buffer, offset, mapSize);
+  if (ptr == NULL) {
+    return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("writeMappedRange: getMappedRange returned NULL")));
+  }
+  memcpy(ptr, lean_sarray_cptr(data), mapSize);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # SetLabel Functions                                               -/
+/- ################################################################## -/
+
+/-- Set the debug label of a buffer. -/
+alloy c extern
+def Buffer.setLabel (buffer : Buffer) (label : @& String) : IO Unit := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  wgpuBufferSetLabel(*c_buffer, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a texture. -/
+alloy c extern
+def Texture.setLabel (texture : Texture) (label : @& String) : IO Unit := {
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+  wgpuTextureSetLabel(*c_tex, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a texture view. -/
+alloy c extern
+def TextureView.setLabel (view : TextureView) (label : @& String) : IO Unit := {
+  WGPUTextureView *c_view = of_lean<TextureView>(view);
+  wgpuTextureViewSetLabel(*c_view, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a sampler. -/
+alloy c extern
+def Sampler.setLabel (sampler : Sampler) (label : @& String) : IO Unit := {
+  WGPUSampler *c_sampler = of_lean<Sampler>(sampler);
+  wgpuSamplerSetLabel(*c_sampler, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a render pipeline. -/
+alloy c extern
+def RenderPipeline.setLabel (pipeline : RenderPipeline) (label : @& String) : IO Unit := {
+  WGPURenderPipeline *c_pipeline = of_lean<RenderPipeline>(pipeline);
+  wgpuRenderPipelineSetLabel(*c_pipeline, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a compute pipeline. -/
+alloy c extern
+def ComputePipeline.setLabel (pipeline : ComputePipeline) (label : @& String) : IO Unit := {
+  WGPUComputePipeline *c_pipeline = of_lean<ComputePipeline>(pipeline);
+  wgpuComputePipelineSetLabel(*c_pipeline, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a command encoder. -/
+alloy c extern
+def CommandEncoder.setLabel (encoder : CommandEncoder) (label : @& String) : IO Unit := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+  wgpuCommandEncoderSetLabel(*c_encoder, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a command buffer. -/
+alloy c extern
+def Command.setLabel (command : Command) (label : @& String) : IO Unit := {
+  WGPUCommandBuffer *c_cmd = of_lean<Command>(command);
+  wgpuCommandBufferSetLabel(*c_cmd, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a shader module. -/
+alloy c extern
+def ShaderModule.setLabel (sm : ShaderModule) (label : @& String) : IO Unit := {
+  WGPUShaderModule *c_sm = of_lean<ShaderModule>(sm);
+  wgpuShaderModuleSetLabel(*c_sm, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a bind group layout. -/
+alloy c extern
+def BindGroupLayout.setLabel (layout : BindGroupLayout) (label : @& String) : IO Unit := {
+  WGPUBindGroupLayout *c_layout = of_lean<BindGroupLayout>(layout);
+  wgpuBindGroupLayoutSetLabel(*c_layout, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a bind group. -/
+alloy c extern
+def BindGroup.setLabel (bg : BindGroup) (label : @& String) : IO Unit := {
+  WGPUBindGroup *c_bg = of_lean<BindGroup>(bg);
+  wgpuBindGroupSetLabel(*c_bg, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a pipeline layout. -/
+alloy c extern
+def PipelineLayout.setLabel (layout : PipelineLayout) (label : @& String) : IO Unit := {
+  WGPUPipelineLayout *c_layout = of_lean<PipelineLayout>(layout);
+  wgpuPipelineLayoutSetLabel(*c_layout, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a queue. -/
+alloy c extern
+def Queue.setLabel (queue : Queue) (label : @& String) : IO Unit := {
+  WGPUQueue *c_queue = of_lean<Queue>(queue);
+  wgpuQueueSetLabel(*c_queue, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a render pass encoder. -/
+alloy c extern
+def RenderPassEncoder.setLabel (r : RenderPassEncoder) (label : @& String) : IO Unit := {
+  WGPURenderPassEncoder *c_rp = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderSetLabel(*c_rp, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a compute pass encoder. -/
+alloy c extern
+def ComputePassEncoder.setLabel (enc : ComputePassEncoder) (label : @& String) : IO Unit := {
+  WGPUComputePassEncoder *c_enc = of_lean<ComputePassEncoder>(enc);
+  wgpuComputePassEncoderSetLabel(*c_enc, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a query set. -/
+alloy c extern
+def QuerySet.setLabel (qs : QuerySet) (label : @& String) : IO Unit := {
+  WGPUQuerySet *c_qs = of_lean<QuerySet>(qs);
+  wgpuQuerySetSetLabel(*c_qs, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Push Constants (wgpu-native extension)                           -/
+/- ################################################################## -/
+
+/-- Set push constant data on a render pass encoder.
+    `stages` is a ShaderStageFlags bitmask. `offset` and data size must be 4-byte aligned. -/
+alloy c extern
+def RenderPassEncoder.setPushConstants (r : RenderPassEncoder)
+    (stages : ShaderStageFlags) (offset : UInt32) (data : @& ByteArray) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  uint8_t *ptr = lean_sarray_cptr(data);
+  uint32_t sizeBytes = (uint32_t)lean_sarray_size(data);
+  wgpuRenderPassEncoderSetPushConstants(*renderPass, stages, offset, sizeBytes, ptr);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Multi-Draw Indirect (wgpu-native extension)                      -/
+/- ################################################################## -/
+
+/-- Issue multiple indirect draw calls from a buffer. -/
+alloy c extern
+def RenderPassEncoder.multiDrawIndirect (r : RenderPassEncoder)
+    (buffer : Buffer) (offset : UInt64) (count : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  wgpuRenderPassEncoderMultiDrawIndirect(*rp, *c_buf, offset, count);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Issue multiple indexed indirect draw calls from a buffer. -/
+alloy c extern
+def RenderPassEncoder.multiDrawIndexedIndirect (r : RenderPassEncoder)
+    (buffer : Buffer) (offset : UInt64) (count : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  wgpuRenderPassEncoderMultiDrawIndexedIndirect(*rp, *c_buf, offset, count);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Adapter Enumeration (wgpu-native extension)                      -/
+/- ################################################################## -/
+
+/-- Enumerate all available adapters. Returns an array of Adapter objects. -/
+alloy c extern
+def Instance.enumerateAdapters (inst : Instance) : IO (Array Adapter) := {
+  WGPUInstance *c_inst = of_lean<Instance>(inst);
+  size_t n = wgpuInstanceEnumerateAdapters(*c_inst, NULL, NULL);
+  if (n == 0) {
+    return lean_io_result_mk_ok(lean_mk_array(lean_box(0), lean_box(0)));
+  }
+  WGPUAdapter *adapters = calloc(n, sizeof(WGPUAdapter));
+  wgpuInstanceEnumerateAdapters(*c_inst, NULL, adapters);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
+  for (size_t i = 0; i < n; i++) {
+    WGPUAdapter *a = calloc(1, sizeof(WGPUAdapter));
+    *a = adapters[i];
+    array = lean_array_push(array, to_lean<Adapter>(a));
+  }
+  free(adapters);
+  return lean_io_result_mk_ok(array);
+}
+
+/-- Get adapter properties as a structure. Returns (vendorID, deviceID, vendorName, driverDescription, adapterType, backendType). -/
+alloy c extern
+def Adapter.getProperties (adapter : Adapter)
+    : IO (UInt32 × UInt32 × String × String × UInt32 × UInt32) := {
+  WGPUAdapter *c_adapter = of_lean<Adapter>(adapter);
+  WGPUAdapterProperties prop = {};
+  prop.nextInChain = NULL;
+  wgpuAdapterGetProperties(*c_adapter, &prop);
+
+  lean_object *vendorName = lean_mk_string(prop.vendorName ? prop.vendorName : "");
+  lean_object *driverDesc = lean_mk_string(prop.driverDescription ? prop.driverDescription : "");
+
+  -- Build nested pairs: (vendorID, (deviceID, (vendorName, (driverDesc, (adapterType, backendType)))))
+  lean_object *p5 = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p5, 0, lean_box(prop.adapterType));
+  lean_ctor_set(p5, 1, lean_box(prop.backendType));
+
+  lean_object *p4 = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p4, 0, driverDesc);
+  lean_ctor_set(p4, 1, p5);
+
+  lean_object *p3 = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p3, 0, vendorName);
+  lean_ctor_set(p3, 1, p4);
+
+  lean_object *p2 = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p2, 0, lean_box(prop.deviceID));
+  lean_ctor_set(p2, 1, p3);
+
+  lean_object *p1 = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p1, 0, lean_box(prop.vendorID));
+  lean_ctor_set(p1, 1, p2);
+
+  return lean_io_result_mk_ok(p1);
+}
+
+/- ################################################################## -/
+/- # Shader Compilation Info                                          -/
+/- ################################################################## -/
+
+/-- A single shader compilation message. -/
+structure CompilationMessage where
+  message : String
+  lineNum : UInt64
+  linePos : UInt64
+  offset  : UInt64
+  length  : UInt64
+  msgType : UInt32  -- 0=error, 1=warning, 2=info
+deriving Repr
+
+@[export lean_wgpu_mk_compilation_message]
+def mkCompilationMessage (msg : String) (lineNum linePos offset length : UInt64) (msgType : UInt32) : CompilationMessage :=
+  { message := msg, lineNum, linePos, offset, length, msgType }
+
+alloy c section
+  extern lean_object* lean_wgpu_mk_compilation_message(
+    lean_object* msg, uint64_t lineNum, uint64_t linePos,
+    uint64_t offset, uint64_t length, uint32_t msgType);
+
+  static lean_object* g_compilation_info_result = NULL;
+  static int g_compilation_info_done = 0;
+
+  static void compilation_info_cb(WGPUCompilationInfoRequestStatus status,
+      struct WGPUCompilationInfo const *info, void *userdata) {
+    (void)userdata;
+    if (status != WGPUCompilationInfoRequestStatus_Success || info == NULL) {
+      g_compilation_info_result = lean_mk_array(lean_box(0), lean_box(0));
+      g_compilation_info_done = 1;
+      return;
+    }
+    lean_object *arr = lean_mk_array(lean_box(0), lean_box(0));
+    for (size_t i = 0; i < info->messageCount; i++) {
+      const WGPUCompilationMessage *m = &info->messages[i];
+      lean_object *msg = lean_mk_string(m->message ? m->message : "");
+      lean_object *cm = lean_wgpu_mk_compilation_message(
+        msg, m->lineNum, m->linePos, m->offset, m->length, (uint32_t)m->type);
+      arr = lean_array_push(arr, cm);
+    }
+    g_compilation_info_result = arr;
+    g_compilation_info_done = 1;
+  }
+end
+
+/-- Get shader compilation info (messages/warnings/errors). Polls the device until ready. -/
+alloy c extern
+def ShaderModule.getCompilationInfo (sm : ShaderModule) (device : Device) : IO (Array CompilationMessage) := {
+  WGPUShaderModule *c_sm = of_lean<ShaderModule>(sm);
+  WGPUDevice *c_device = of_lean<Device>(device);
+
+  g_compilation_info_done = 0;
+  g_compilation_info_result = NULL;
+  wgpuShaderModuleGetCompilationInfo(*c_sm, compilation_info_cb, NULL);
+
+  for (int i = 0; i < 1000 && !g_compilation_info_done; i++) {
+    wgpuDevicePoll(*c_device, false, NULL);
+  }
+
+  if (g_compilation_info_result == NULL) {
+    g_compilation_info_result = lean_mk_array(lean_box(0), lean_box(0));
+  }
+  return lean_io_result_mk_ok(g_compilation_info_result);
+}
+
+/- ################################################################## -/
+/- # Texture Dimension enum                                           -/
+/- ################################################################## -/
+
+/-- Get the dimension of a texture. 0=1D, 1=2D, 2=3D. -/
+alloy c extern
+def Texture.getDimension (texture : Texture) : IO UInt32 := {
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+  return lean_io_result_mk_ok(lean_box((uint32_t)wgpuTextureGetDimension(*c_tex)));
+}
+
+/- ################################################################## -/
+/- # Queue.submitForIndex (wgpu-native extension)                     -/
+/- ################################################################## -/
+
+/-- Submit commands and return a submission index that can be used for finer-grained polling. -/
+alloy c extern
+def Queue.submitForIndex (queue : Queue) (commands : @& Array Command) : IO UInt64 := {
+  WGPUQueue *c_queue = of_lean<Queue>(queue);
+  size_t n = lean_array_size(commands);
+  WGPUCommandBuffer *arr = calloc(n, sizeof(WGPUCommandBuffer));
+  for (size_t i = 0; i < n; i++) {
+    lean_object *command = lean_array_uget(commands, i);
+    WGPUCommandBuffer *c_command = of_lean<Command>(command);
+    arr[i] = *c_command;
+  }
+  WGPUSubmissionIndex idx = wgpuQueueSubmitForIndex(*c_queue, n, arr);
+  free(arr);
+  return lean_io_result_mk_ok(lean_box_uint64(idx));
+}
+
+/- ################################################################## -/
+/- # Render Bundle Encoder debug markers                              -/
+/- ################################################################## -/
+
+/-- Push a debug group on a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.pushDebugGroup (enc : RenderBundleEncoder) (label : @& String) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  wgpuRenderBundleEncoderPushDebugGroup(*c_enc, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Pop a debug group from a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.popDebugGroup (enc : RenderBundleEncoder) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  wgpuRenderBundleEncoderPopDebugGroup(*c_enc);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Insert a debug marker on a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.insertDebugMarker (enc : RenderBundleEncoder) (label : @& String) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  wgpuRenderBundleEncoderInsertDebugMarker(*c_enc, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Pipeline Statistics Queries (wgpu-native extension)              -/
+/- ################################################################## -/
+
+/-- Begin a pipeline statistics query in a compute pass. -/
+alloy c extern
+def ComputePassEncoder.beginPipelineStatisticsQuery (enc : ComputePassEncoder) (qs : QuerySet) (queryIndex : UInt32) : IO Unit := {
+  WGPUComputePassEncoder *c_enc = of_lean<ComputePassEncoder>(enc);
+  WGPUQuerySet *c_qs = of_lean<QuerySet>(qs);
+  wgpuComputePassEncoderBeginPipelineStatisticsQuery(*c_enc, *c_qs, queryIndex);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- End a pipeline statistics query in a compute pass. -/
+alloy c extern
+def ComputePassEncoder.endPipelineStatisticsQuery (enc : ComputePassEncoder) : IO Unit := {
+  WGPUComputePassEncoder *c_enc = of_lean<ComputePassEncoder>(enc);
+  wgpuComputePassEncoderEndPipelineStatisticsQuery(*c_enc);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Begin a pipeline statistics query in a render pass. -/
+alloy c extern
+def RenderPassEncoder.beginPipelineStatisticsQuery (r : RenderPassEncoder) (qs : QuerySet) (queryIndex : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  WGPUQuerySet *c_qs = of_lean<QuerySet>(qs);
+  wgpuRenderPassEncoderBeginPipelineStatisticsQuery(*rp, *c_qs, queryIndex);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- End a pipeline statistics query in a render pass. -/
+alloy c extern
+def RenderPassEncoder.endPipelineStatisticsQuery (r : RenderPassEncoder) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderEndPipelineStatisticsQuery(*rp);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Device.setLabel                                                  -/
+/- ################################################################## -/
+
+/-- Set the debug label of a device. -/
+alloy c extern
+def Device.setLabel (device : Device) (label : @& String) : IO Unit := {
+  WGPUDevice *c_dev = of_lean<Device>(device);
+  wgpuDeviceSetLabel(*c_dev, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # RenderBundle / RenderBundleEncoder SetLabel + indirect draw      -/
+/- ################################################################## -/
+
+/-- Set the debug label of a render bundle. -/
+alloy c extern
+def RenderBundle.setLabel (rb : RenderBundle) (label : @& String) : IO Unit := {
+  WGPURenderBundle *c_rb = of_lean<RenderBundle>(rb);
+  wgpuRenderBundleSetLabel(*c_rb, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the debug label of a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.setLabel (enc : RenderBundleEncoder) (label : @& String) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  wgpuRenderBundleEncoderSetLabel(*c_enc, lean_string_cstr(label));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Issue an indirect draw call from a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.drawIndirect (enc : RenderBundleEncoder)
+    (buffer : Buffer) (offset : UInt64) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  wgpuRenderBundleEncoderDrawIndirect(*c_enc, *c_buf, offset);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Issue an indexed indirect draw call from a render bundle encoder. -/
+alloy c extern
+def RenderBundleEncoder.drawIndexedIndirect (enc : RenderBundleEncoder)
+    (buffer : Buffer) (offset : UInt64) : IO Unit := {
+  WGPURenderBundleEncoder *c_enc = of_lean<RenderBundleEncoder>(enc);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  wgpuRenderBundleEncoderDrawIndexedIndirect(*c_enc, *c_buf, offset);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Multi-Draw Indirect Count (wgpu-native extension)                -/
+/- ################################################################## -/
+
+/-- Issue multiple indirect draw calls with a GPU-driven count buffer. -/
+alloy c extern
+def RenderPassEncoder.multiDrawIndirectCount (r : RenderPassEncoder)
+    (buffer : Buffer) (offset : UInt64)
+    (countBuffer : Buffer) (countBufferOffset : UInt64)
+    (maxCount : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  WGPUBuffer *c_count_buf = of_lean<Buffer>(countBuffer);
+  wgpuRenderPassEncoderMultiDrawIndirectCount(*rp, *c_buf, offset, *c_count_buf, countBufferOffset, maxCount);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Issue multiple indexed indirect draw calls with a GPU-driven count buffer. -/
+alloy c extern
+def RenderPassEncoder.multiDrawIndexedIndirectCount (r : RenderPassEncoder)
+    (buffer : Buffer) (offset : UInt64)
+    (countBuffer : Buffer) (countBufferOffset : UInt64)
+    (maxCount : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *rp = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buf = of_lean<Buffer>(buffer);
+  WGPUBuffer *c_count_buf = of_lean<Buffer>(countBuffer);
+  wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(*rp, *c_buf, offset, *c_count_buf, countBufferOffset, maxCount);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- ################################################################## -/
+/- # Instance Global Report (wgpu-native extension)                   -/
+/- ################################################################## -/
+
+/-- A single backend's resource statistics. -/
+structure BackendReport where
+  numAdapters : UInt64
+  numDevices : UInt64
+  numQueues : UInt64
+  numPipelineLayouts : UInt64
+  numShaderModules : UInt64
+  numBindGroupLayouts : UInt64
+  numBindGroups : UInt64
+  numCommandBuffers : UInt64
+  numRenderBundles : UInt64
+  numRenderPipelines : UInt64
+  numComputePipelines : UInt64
+  numBuffers : UInt64
+  numTextures : UInt64
+  numTextureViews : UInt64
+  numSamplers : UInt64
+  numQuerySets : UInt64
+deriving Repr
+
+/-- Global report across all backends. -/
+structure GlobalReport where
+  vulkan : BackendReport
+  metal  : BackendReport
+  dx12   : BackendReport
+  gl     : BackendReport
+deriving Repr
+
+@[export lean_wgpu_mk_backend_report]
+def mkBackendReport (a b c d e f g h i j k l m n o p : UInt64) : BackendReport :=
+  { numAdapters := a, numDevices := b, numQueues := c, numPipelineLayouts := d,
+    numShaderModules := e, numBindGroupLayouts := f, numBindGroups := g,
+    numCommandBuffers := h, numRenderBundles := i, numRenderPipelines := j,
+    numComputePipelines := k, numBuffers := l, numTextures := m,
+    numTextureViews := n, numSamplers := o, numQuerySets := p }
+
+alloy c section
+  extern lean_object* lean_wgpu_mk_backend_report(
+    uint64_t, uint64_t, uint64_t, uint64_t,
+    uint64_t, uint64_t, uint64_t, uint64_t,
+    uint64_t, uint64_t, uint64_t, uint64_t,
+    uint64_t, uint64_t, uint64_t, uint64_t);
+
+  static lean_object* hub_report_to_lean(const WGPUHubReport *r) {
+    lean_object *result = lean_wgpu_mk_backend_report(
+      r->adapters.numAllocated, r->devices.numAllocated, r->queues.numAllocated, r->pipelineLayouts.numAllocated,
+      r->shaderModules.numAllocated, r->bindGroupLayouts.numAllocated, r->bindGroups.numAllocated,
+      r->commandBuffers.numAllocated, r->renderBundles.numAllocated, r->renderPipelines.numAllocated,
+      r->computePipelines.numAllocated, r->buffers.numAllocated, r->textures.numAllocated,
+      r->textureViews.numAllocated, r->samplers.numAllocated, r->querySets.numAllocated);
+    return result;
+  }
+end
+
+/-- Generate a global resource report from the wgpu-native instance.
+    Returns statistics for Vulkan, Metal, DX12, and GL backends. -/
+alloy c extern
+def Instance.generateReport (inst : Instance) : IO GlobalReport := {
+  WGPUInstance *c_inst = of_lean<Instance>(inst);
+  WGPUGlobalReport report = {};
+  wgpuGenerateReport(*c_inst, &report);
+
+  lean_object *vk = hub_report_to_lean(&report.vulkan);
+  lean_object *mtl = hub_report_to_lean(&report.metal);
+  lean_object *dx12 = hub_report_to_lean(&report.dx12);
+  lean_object *gl = hub_report_to_lean(&report.gl);
+
+  -- GlobalReport structure: ⟨vulkan, metal, dx12, gl⟩
+  lean_object *obj = lean_alloc_ctor(0, 4, 0);
+  lean_ctor_set(obj, 0, vk);
+  lean_ctor_set(obj, 1, mtl);
+  lean_ctor_set(obj, 2, dx12);
+  lean_ctor_set(obj, 3, gl);
+  return lean_io_result_mk_ok(obj);
+}
+
+/- ################################################################## -/
+/- # Async Pipeline Creation                                          -/
+/- ################################################################## -/
+
+alloy c section
+  static void create_compute_pipeline_async_cb(
+      WGPUCreatePipelineAsyncStatus status, WGPUComputePipeline pipeline,
+      const char *message, void *userdata) {
+    wgpu_callback_data *data = (wgpu_callback_data*)userdata;
+    if (status == WGPUCreatePipelineAsyncStatus_Success) {
+      WGPUComputePipeline *p = calloc(1, sizeof(WGPUComputePipeline));
+      *p = pipeline;
+      data->result = lean_io_result_mk_ok(to_lean<ComputePipeline>(p));
+    } else {
+      lean_object *errMsg = lean_mk_string(message ? message : "async compute pipeline creation failed");
+      data->result = lean_io_result_mk_error(lean_mk_io_user_error(errMsg));
+    }
+  }
+
+  -- Note: wgpuDeviceCreateRenderPipelineAsync requires a complex descriptor
+  -- that is constructed by existing high-level helpers (e.g. createRenderPipeline).
+  -- The async render pipeline callback is omitted here for now.
+end
+
+/-- Create a compute pipeline asynchronously. Returns a Task result. -/
+alloy c extern
+def Device.createComputePipelineAsync (device : Device)
+    (shaderModule : ShaderModule) (pipelineLayout : PipelineLayout)
+    (entryPoint : @& String) : IO (A (Result ComputePipeline)) := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPUShaderModule *c_sm = of_lean<ShaderModule>(shaderModule);
+  WGPUPipelineLayout *c_layout = of_lean<PipelineLayout>(pipelineLayout);
+
+  WGPUComputePipelineDescriptor desc = {};
+  desc.compute.module = *c_sm;
+  desc.compute.entryPoint = lean_string_cstr(entryPoint);
+  desc.layout = *c_layout;
+
+  wgpu_callback_data cb_data = {0};
+  wgpuDeviceCreateComputePipelineAsync(*c_device, &desc, create_compute_pipeline_async_cb, &cb_data);
+
+  -- wgpu-native calls this synchronously, so cb_data.result is already set
+  if (cb_data.result == NULL) {
+    -- Poll until complete
+    for (int i = 0; i < 1000 && cb_data.result == NULL; i++) {
+      wgpuDevicePoll(*c_device, false, NULL);
+    }
+    if (cb_data.result == NULL) {
+      cb_data.result = lean_io_result_mk_error(lean_mk_io_user_error(
+        lean_mk_string("createComputePipelineAsync: timed out")));
+    }
+  }
+  lean_object *task = lean_task_pure(cb_data.result);
+  return lean_io_result_mk_ok(task);
+}
+
+/- ################################################################## -/
+/- # Instance.createSurface (headless / non-GLFW surface creation)    -/
+/- ################################################################## -/
 
 end Wgpu

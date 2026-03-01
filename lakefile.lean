@@ -282,3 +282,39 @@ lean_exe shadowmap where
   root := `Examples.ShadowMap
   extraDepTargets := #[`glfw3webgpu]
   nativeFacets := exeNativeFacets
+
+lean_exe keyboardcallback where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.KeyboardCallback
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe bufferreadwrite where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.BufferReadWrite
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe adapterenum where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.AdapterEnum
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe glfwinfo where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.GlfwInfo
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe instancereport where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.InstanceReport
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe raytracer where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.RayTracer
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets

@@ -87,32 +87,32 @@ def groundVerts : Array Float :=
       2,0, 2,  0,1,0,
      -2,0, 2,  0,1,0 ]
 
+-- Emit 6 transformed vertices (2 tris) with a shared normal into a Float array.
+private def pushFace (d : Array Float) (cx cy cz hx hy hz : Float)
+    (v0 v1 v2 v3 v4 v5 : Float × Float × Float) (nx ny nz : Float) : Array Float := Id.run do
+  let mut d := d
+  for (vx, vy, vz) in [v0, v1, v2, v3, v4, v5] do
+    d := d.push (cx + vx * hx)
+    d := d.push (cy + vy * hy)
+    d := d.push (cz + vz * hz)
+    d := d.push nx; d := d.push ny; d := d.push nz
+  d
+
 -- Build a box: center (cx,cy,cz), half-extents (hx,hy,hz)
 def boxVerts (cx cy cz hx hy hz : Float) : Array Float := Id.run do
   let mut d : Array Float := #[]
-  -- Each face: 2 tris, 6 vertices, each with pos + normal
-  let faces : Array (Float × Float × Float × Float × Float × Float × Float × Float × Float × Float × Float × Float × Float × Float × Float) := #[
-    -- front (z+): normal 0,0,1
-    (-1,-1,1, 1,-1,1, 1,1,1, -1,-1,1, 1,1,1, -1,1,1, 0,0,1),
-    -- back (z-): normal 0,0,-1
-    (1,-1,-1, -1,-1,-1, -1,1,-1, 1,-1,-1, -1,1,-1, 1,1,-1, 0,0,-1),
-    -- right (x+): normal 1,0,0
-    (1,-1,1, 1,-1,-1, 1,1,-1, 1,-1,1, 1,1,-1, 1,1,1, 1,0,0),
-    -- left (x-): normal -1,0,0
-    (-1,-1,-1, -1,-1,1, -1,1,1, -1,-1,-1, -1,1,1, -1,1,-1, -1,0,0),
-    -- top (y+): normal 0,1,0
-    (-1,1,1, 1,1,1, 1,1,-1, -1,1,1, 1,1,-1, -1,1,-1, 0,1,0),
-    -- bottom (y-): normal 0,-1,0
-    (-1,-1,-1, 1,-1,-1, 1,-1,1, -1,-1,-1, 1,-1,1, -1,-1,1, 0,-1,0)
-  ]
-  for (x0,y0,z0, x1,y1,z1, x2,y2,z2, x3,y3,z3, x4,y4,z4, x5,y5,z5, nx,ny,nz) in faces do
-    for (vx, vy, vz) in [(x0,y0,z0),(x1,y1,z1),(x2,y2,z2),(x3,y3,z3),(x4,y4,z4),(x5,y5,z5)] do
-      d := d.push (cx + vx * hx)
-      d := d.push (cy + vy * hy)
-      d := d.push (cz + vz * hz)
-      d := d.push nx
-      d := d.push ny
-      d := d.push nz
+  -- front (z+)
+  d := pushFace d cx cy cz hx hy hz (-1,-1,1) (1,-1,1) (1,1,1) (-1,-1,1) (1,1,1) (-1,1,1) 0 0 1
+  -- back (z-)
+  d := pushFace d cx cy cz hx hy hz (1,-1,-1) (-1,-1,-1) (-1,1,-1) (1,-1,-1) (-1,1,-1) (1,1,-1) 0 0 (-1)
+  -- right (x+)
+  d := pushFace d cx cy cz hx hy hz (1,-1,1) (1,-1,-1) (1,1,-1) (1,-1,1) (1,1,-1) (1,1,1) 1 0 0
+  -- left (x-)
+  d := pushFace d cx cy cz hx hy hz (-1,-1,-1) (-1,-1,1) (-1,1,1) (-1,-1,-1) (-1,1,1) (-1,1,-1) (-1) 0 0
+  -- top (y+)
+  d := pushFace d cx cy cz hx hy hz (-1,1,1) (1,1,1) (1,1,-1) (-1,1,1) (1,1,-1) (-1,1,-1) 0 1 0
+  -- bottom (y-)
+  d := pushFace d cx cy cz hx hy hz (-1,-1,-1) (1,-1,-1) (1,-1,1) (-1,-1,-1) (1,-1,1) (-1,-1,1) 0 (-1) 0
   d
 
 def sceneVertexData : Array Float := Id.run do
