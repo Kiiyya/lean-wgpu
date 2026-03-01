@@ -173,12 +173,145 @@ section GLFWKeys
 
   def GLFW.press       : UInt32 := 1
   def GLFW.release     : UInt32 := 0
+  def GLFW.repeat      : UInt32 := 2
 
   /-- Mouse button constants -/
   def GLFW.mouseButtonLeft   : UInt32 := 0
   def GLFW.mouseButtonRight  : UInt32 := 1
   def GLFW.mouseButtonMiddle : UInt32 := 2
+
+  /-- More key constants -/
+  def GLFW.keyF1 : UInt32 := 290
+  def GLFW.keyF2 : UInt32 := 291
+  def GLFW.keyF3 : UInt32 := 292
+  def GLFW.keyF11 : UInt32 := 300
+  def GLFW.keyR : UInt32 := 82
+  def GLFW.keyC : UInt32 := 67
+  def GLFW.keyP : UInt32 := 80
+  def GLFW.key1 : UInt32 := 49
+  def GLFW.key2 : UInt32 := 50
+  def GLFW.key3 : UInt32 := 51
+  def GLFW.key4 : UInt32 := 52
+  def GLFW.key5 : UInt32 := 53
+
+  /-- Cursor modes -/
+  def GLFW.cursorNormal   : UInt32 := 0x00034001
+  def GLFW.cursorHidden   : UInt32 := 0x00034002
+  def GLFW.cursorDisabled : UInt32 := 0x00034003
 end GLFWKeys
+
+/-- Set cursor input mode. Use GLFW.cursorNormal, cursorHidden, or cursorDisabled. -/
+alloy c extern
+def GLFWwindow.setInputMode (l_window : GLFWwindow) (mode : UInt32) (value : UInt32) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwSetInputMode(window, mode, value);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Get the window position in screen coordinates. -/
+alloy c extern
+def GLFWwindow.getWindowPos (l_window : GLFWwindow) : IO (UInt32 × UInt32) := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  int x, y;
+  glfwGetWindowPos(window, &x, &y);
+  lean_object *pair = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(pair, 0, lean_box(x));
+  lean_ctor_set(pair, 1, lean_box(y));
+  return lean_io_result_mk_ok(pair);
+}
+
+/-- Set the window position in screen coordinates. -/
+alloy c extern
+def GLFWwindow.setWindowPos (l_window : GLFWwindow) (x y : UInt32) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwSetWindowPos(window, x, y);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Iconify (minimize) the window. -/
+alloy c extern
+def GLFWwindow.iconify (l_window : GLFWwindow) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwIconifyWindow(window);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Restore the window from iconified/maximized state. -/
+alloy c extern
+def GLFWwindow.restore (l_window : GLFWwindow) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwRestoreWindow(window);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Maximize the window. -/
+alloy c extern
+def GLFWwindow.maximize (l_window : GLFWwindow) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwMaximizeWindow(window);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Focus the window, bringing it to front. -/
+alloy c extern
+def GLFWwindow.focus (l_window : GLFWwindow) : IO Unit := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  glfwFocusWindow(window);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Check if the window is focused. -/
+alloy c extern
+def GLFWwindow.isFocused (l_window : GLFWwindow) : IO Bool := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
+  return lean_io_result_mk_ok(lean_box(focused));
+}
+
+/-- Check if the window is iconified (minimized). -/
+alloy c extern
+def GLFWwindow.isIconified (l_window : GLFWwindow) : IO Bool := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  int val = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
+  return lean_io_result_mk_ok(lean_box(val));
+}
+
+/-- Check if the window is visible. -/
+alloy c extern
+def GLFWwindow.isVisible (l_window : GLFWwindow) : IO Bool := {
+  GLFWwindow* window = of_lean<GLFWwindow>(l_window);
+  int val = glfwGetWindowAttrib(window, GLFW_VISIBLE);
+  return lean_io_result_mk_ok(lean_box(val));
+}
+
+/-- Set the clipboard string. -/
+alloy c extern
+def GLFW.setClipboardString (text : String) : IO Unit := {
+  glfwSetClipboardString(NULL, lean_string_cstr(text));
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Get the clipboard string. -/
+alloy c extern
+def GLFW.getClipboardString : IO String := {
+  const char *s = glfwGetClipboardString(NULL);
+  if (s == NULL) return lean_io_result_mk_ok(lean_mk_string(""));
+  return lean_io_result_mk_ok(lean_mk_string(s));
+}
+
+/-- Wait for events with timeout (in seconds). -/
+alloy c extern
+def GLFW.waitEventsTimeout (timeout : Float) : IO Unit := {
+  glfwWaitEventsTimeout(timeout);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Post an empty event to wake up the event loop. -/
+alloy c extern
+def GLFW.postEmptyEvent : IO Unit := {
+  glfwPostEmptyEvent();
+  return lean_io_result_mk_ok(lean_box(0));
+}
 
 alloy c section
   -- Hacky: Copied from the C code genered by alloy in Wgpu.alloy.c

@@ -216,3 +216,69 @@ lean_exe resizablewindow where
   root := `Examples.ResizableWindow
   extraDepTargets := #[`glfw3webgpu]
   nativeFacets := exeNativeFacets
+
+lean_exe linegrid where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.LineGrid
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe mousepaint where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.MousePaint
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe rendertotexture where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.RenderToTexture
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe gameoflife where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.GameOfLife
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe bouncingballs where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.BouncingBalls
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe particles where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.Particles
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe postprocessblur where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.PostProcessBlur
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe msaatriangle where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.MSAATriangle
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe stenciloutline where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.StencilOutline
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe wireframe where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.Wireframe
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe shadowmap where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.ShadowMap
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
