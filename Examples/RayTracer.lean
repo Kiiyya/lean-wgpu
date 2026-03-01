@@ -10,25 +10,29 @@ set_option linter.unusedVariables false
 /--
   RayTracer: A real-time compute-shader software ray tracer.
 
-  Renders a scene with reflective spheres on a checkerboard ground plane.
-  The camera orbits the scene over time. Features:
-  - Per-pixel ray casting from a perspective camera
-  - 5 spheres with different colors, specularity, and reflectivity
-  - Infinite checkerboard ground plane
-  - Phong shading with a point light
-  - Hard shadows (shadow rays)
-  - Up to 3 bounces of mirror-like reflections
-  - Gamma correction
-  - Sky gradient background
+  Renders a scene of spheres inside a square room lit by a single ceiling light.
+  PBR-inspired shading with roughness and metallic parameters per surface.
+  - Room: 8×6×8 box with colored walls (red left, blue right, green back,
+    wood-pattern floor, white ceiling)
+  - 5 spheres: chrome mirror, matte red, glossy blue, gold metallic, pale pearl
+  - Single warm point light near the ceiling
+  - Schlick Fresnel, energy-conserving specular, inverse-square falloff
+  - Hard shadows, up to 4 bounce reflections, gamma correction
+
+  Controls:
+  - Left-click + drag  → look around (yaw / pitch)
+  - W / S              → move forward / backward
+  - A / D              → strafe left / right
+  - Space / LShift     → move up / down
+  - Escape             → exit
 
   Architecture:
   - Compute pipeline: @group(0) = uniform camera, @group(1) = storage pixel buffer
   - Render pipeline: @group(0) = fullscreen quad reading pixel buffer + resolution uniform
-  Press Q or Escape to exit.
 -/
 
 -- ═══════════════════════════════════════════════════════════════════
--- Compute shader: ray traces the scene, writes packed RGBA u32 per pixel
+-- Compute shader: ray traces the room scene, writes packed RGBA u32 per pixel
 -- ═══════════════════════════════════════════════════════════════════
 def rtComputeSource : String :=
 "struct Uniforms { \
@@ -42,20 +46,20 @@ def rtComputeSource : String :=
  \
 const INF: f32 = 1e20; \
 const EPS: f32 = 0.001; \
-const MAX_BOUNCES: i32 = 3; \
+const MAX_BOUNCES: i32 = 4; \
 const N_SPHERES: i32 = 5; \
  \
-struct Sphere { center: vec3f, radius: f32, color: vec3f, spec: f32, refl: f32 }; \
-struct Hit { t: f32, pos: vec3f, nor: vec3f, col: vec3f, spec: f32, refl: f32 }; \
+struct Sphere { center: vec3f, radius: f32, color: vec3f, roughness: f32, metallic: f32 }; \
+struct Hit { t: f32, pos: vec3f, nor: vec3f, col: vec3f, roughness: f32, metallic: f32 }; \
  \
-fn sphere(i: i32) -> Sphere { \
+fn getSphere(i: i32) -> Sphere { \
     var s: Sphere; \
     switch(i) { \
-        case 0 { s = Sphere(vec3f( 0.0, 1.0,  0.0), 1.0,  vec3f(0.9,0.2,0.2),  64.0, 0.4); } \
-        case 1 { s = Sphere(vec3f( 2.5, 0.6,  1.5), 0.6,  vec3f(0.2,0.9,0.3),  32.0, 0.3); } \
-        case 2 { s = Sphere(vec3f(-2.0, 0.8,  1.0), 0.8,  vec3f(0.2,0.3,0.95), 128.0,0.5); } \
-        case 3 { s = Sphere(vec3f( 1.0, 0.4, -2.0), 0.4,  vec3f(0.95,0.85,0.2), 16.0,0.2); } \
-        default { s = Sphere(vec3f(-1.5, 0.35,-1.5), 0.35, vec3f(0.9,0.5,0.95), 48.0,0.6); } \
+        case 0 { s = Sphere(vec3f(-1.8, 1.0, -1.5), 1.0, vec3f(0.95,0.95,0.95), 0.05, 0.95); } \
+        case 1 { s = Sphere(vec3f( 2.0, 0.7,  0.5), 0.7, vec3f(0.85,0.15,0.10), 0.85, 0.05); } \
+        case 2 { s = Sphere(vec3f( 0.0, 0.5,  1.5), 0.5, vec3f(0.10,0.20,0.90), 0.20, 0.30); } \
+        case 3 { s = Sphere(vec3f( 1.5, 1.2, -2.0), 1.2, vec3f(1.00,0.76,0.33), 0.15, 0.90); } \
+        default { s = Sphere(vec3f(-2.5, 0.45, 2.0), 0.45,vec3f(0.90,0.92,0.88), 0.08, 0.65); } \
     } \
     return s; \
 } \
@@ -74,60 +78,118 @@ fn hitSphere(ro: vec3f, rd: vec3f, s: Sphere) -> f32 { \
     return INF; \
 } \
  \
-fn hitPlane(ro: vec3f, rd: vec3f) -> f32 { \
-    if (abs(rd.y) < EPS) { return INF; } \
-    let t = -ro.y / rd.y; \
-    if (t > EPS) { return t; } \
-    return INF; \
+fn wallColor(nor: vec3f, pos: vec3f) -> vec3f { \
+    if (nor.y > 0.5) { \
+        let fx = floor(pos.x); let fz = floor(pos.z); \
+        if ((i32(fx) + i32(fz)) % 2 == 0) { return vec3f(0.55,0.35,0.18); } \
+        return vec3f(0.42,0.26,0.12); \
+    } \
+    if (nor.y < -0.5) { return vec3f(0.90,0.88,0.85); } \
+    if (nor.x > 0.5)  { return vec3f(0.75,0.15,0.12); } \
+    if (nor.x < -0.5) { return vec3f(0.12,0.18,0.75); } \
+    if (nor.z > 0.5)  { return vec3f(0.20,0.65,0.25); } \
+    return vec3f(0.70,0.70,0.72); \
 } \
  \
-fn checker(p: vec3f) -> vec3f { \
-    if ((i32(floor(p.x)) + i32(floor(p.z))) % 2 == 0) { \
-        return vec3f(0.92, 0.92, 0.92); \
+fn wallProps(nor: vec3f) -> vec2f { \
+    if (nor.y > 0.5) { return vec2f(0.35, 0.05); } \
+    if (nor.y < -0.5) { return vec2f(0.90, 0.00); } \
+    return vec2f(0.80, 0.00); \
+} \
+ \
+fn hitRoom(ro: vec3f, rd: vec3f) -> Hit { \
+    var h: Hit; \
+    h.t = INF; \
+    let rMin = vec3f(-4.0, 0.0, -4.0); \
+    let rMax = vec3f( 4.0, 6.0,  4.0); \
+    if (abs(rd.x) > EPS) { \
+        var t = (rMin.x - ro.x) / rd.x; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) { \
+                h.t = t; h.pos = p; h.nor = vec3f(1.0,0.0,0.0); } } \
+        t = (rMax.x - ro.x) / rd.x; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) { \
+                h.t = t; h.pos = p; h.nor = vec3f(-1.0,0.0,0.0); } } \
     } \
-    return vec3f(0.18, 0.18, 0.18); \
+    if (abs(rd.y) > EPS) { \
+        var t = (rMin.y - ro.y) / rd.y; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) { \
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,1.0,0.0); } } \
+        t = (rMax.y - ro.y) / rd.y; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) { \
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,-1.0,0.0); } } \
+    } \
+    if (abs(rd.z) > EPS) { \
+        var t = (rMin.z - ro.z) / rd.z; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) { \
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,1.0); } } \
+        t = (rMax.z - ro.z) / rd.z; \
+        if (t > EPS && t < h.t) { let p = ro + rd * t; \
+            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) { \
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,-1.0); } } \
+    } \
+    if (h.t < INF) { \
+        h.col = wallColor(h.nor, h.pos); \
+        let wp = wallProps(h.nor); h.roughness = wp.x; h.metallic = wp.y; \
+    } \
+    return h; \
 } \
  \
 fn traceScene(ro: vec3f, rd: vec3f) -> Hit { \
     var h: Hit; \
     h.t = INF; \
     for (var i: i32 = 0; i < N_SPHERES; i++) { \
-        let s = sphere(i); \
+        let s = getSphere(i); \
         let t = hitSphere(ro, rd, s); \
         if (t < h.t) { \
-            h.t = t; \
-            h.pos = ro + rd * t; \
+            h.t = t; h.pos = ro + rd * t; \
             h.nor = normalize(h.pos - s.center); \
-            h.col = s.color; h.spec = s.spec; h.refl = s.refl; \
+            h.col = s.color; h.roughness = s.roughness; h.metallic = s.metallic; \
         } \
     } \
-    let tP = hitPlane(ro, rd); \
-    if (tP < h.t) { \
-        h.t = tP; \
-        h.pos = ro + rd * tP; \
-        h.nor = vec3f(0.0, 1.0, 0.0); \
-        h.col = checker(h.pos); \
-        h.spec = 16.0; h.refl = 0.15; \
-    } \
+    let rh = hitRoom(ro, rd); \
+    if (rh.t < h.t) { h = rh; } \
     return h; \
 } \
  \
-fn shadow(p: vec3f, ld: vec3f) -> f32 { \
+fn shadowTest(p: vec3f, ld: vec3f, maxD: f32) -> f32 { \
     let o = p + ld * EPS * 2.0; \
     for (var i: i32 = 0; i < N_SPHERES; i++) { \
-        if (hitSphere(o, ld, sphere(i)) < INF) { return 0.2; } \
+        let t = hitSphere(o, ld, getSphere(i)); \
+        if (t > EPS && t < maxD) { return 0.0; } \
     } \
     return 1.0; \
 } \
  \
 fn shade(h: Hit, rd: vec3f) -> vec3f { \
-    let lp = vec3f(5.0, 8.0, -3.0); \
-    let ld = normalize(lp - h.pos); \
-    let sh = shadow(h.pos, ld); \
-    let diff = max(dot(h.nor, ld), 0.0) * sh; \
+    let lp = vec3f(0.0, 5.8, 0.0); \
+    let lDir = vec3f(0.0, -1.0, 0.0); \
+    let cosInner = 0.85; \
+    let cosOuter = 0.55; \
+    let lc = vec3f(1.0, 0.95, 0.85); \
+    let toL = lp - h.pos; \
+    let dist = length(toL); \
+    let ld = toL / dist; \
+    let spotCos = dot(-ld, lDir); \
+    let spotFade = clamp((spotCos - cosOuter) / (cosInner - cosOuter), 0.0, 1.0); \
+    let atten = 25.0 / (dist * dist + 1.0) * spotFade; \
+    let sh = shadowTest(h.pos, ld, dist); \
+    let NdotL = max(dot(h.nor, ld), 0.0); \
     let hv = normalize(ld - rd); \
-    let sp = pow(max(dot(h.nor, hv), 0.0), h.spec) * sh; \
-    return vec3f(0.08, 0.08, 0.12) + h.col * diff * 0.9 + vec3f(1.0) * sp * 0.6; \
+    let NdotH = max(dot(h.nor, hv), 0.0); \
+    let r4 = h.roughness * h.roughness * h.roughness * h.roughness; \
+    let specPow = clamp(2.0 / (r4 + 0.001) - 2.0, 1.0, 2048.0); \
+    let spec = pow(NdotH, specPow) * (specPow + 2.0) / 8.0; \
+    let f0 = mix(vec3f(0.04), h.col, h.metallic); \
+    let VdotH = max(dot(-rd, hv), 0.0); \
+    let fresnel = f0 + (vec3f(1.0) - f0) * pow(1.0 - VdotH, 5.0); \
+    let diffCol = h.col * (1.0 - h.metallic); \
+    let ambient = vec3f(0.03, 0.03, 0.04); \
+    return ambient + (diffCol * NdotL + fresnel * spec) * lc * atten * sh; \
 } \
  \
 fn traceRay(ro: vec3f, rd: vec3f) -> vec3f { \
@@ -136,13 +198,15 @@ fn traceRay(ro: vec3f, rd: vec3f) -> vec3f { \
     var o = ro; var d = rd; \
     for (var b: i32 = 0; b < MAX_BOUNCES; b++) { \
         let h = traceScene(o, d); \
-        if (h.t >= INF) { \
-            color += throughput * mix(vec3f(0.6,0.75,1.0), vec3f(0.15,0.3,0.8), max(d.y,0.0)); \
-            break; \
-        } \
-        color += throughput * (1.0 - h.refl) * shade(h, d); \
-        throughput *= h.refl; \
-        if (dot(throughput, vec3f(1.0)) < 0.01) { break; } \
+        if (h.t >= INF) { color += throughput * vec3f(0.01); break; } \
+        let f0 = mix(vec3f(0.04), h.col, h.metallic); \
+        let cosT = max(dot(-d, h.nor), 0.0); \
+        let schlick = f0 + (vec3f(1.0) - f0) * pow(1.0 - cosT, 5.0); \
+        let refl = (schlick.x * 0.33 + schlick.y * 0.33 + schlick.z * 0.34) \
+                 * (1.0 - h.roughness * 0.85); \
+        color += throughput * (1.0 - refl) * shade(h, d); \
+        throughput *= refl; \
+        if (dot(throughput, vec3f(1.0)) < 0.005) { break; } \
         o = h.pos + h.nor * EPS * 2.0; \
         d = reflect(d, h.nor); \
     } \
@@ -174,7 +238,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { \
     let fov = 1.2; \
     let rd = normalize(fwd + right * uv.x * aspect * fov + up * uv.y * fov); \
     let color = traceRay(eye, rd); \
-    pixels[id.y * w + id.x] = pack(pow(color, vec3f(1.0 / 2.2))); \
+    pixels[id.y * w + id.x] = pack(color); \
 }"
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -226,7 +290,7 @@ def rayTracer : IO Unit := do
   eprintln "=== Ray Tracer (Compute Shader) ==="
 
   setLogCallback fun lvl msg => eprintln s!"[{repr lvl}] {msg}"
-  let window ← GLFWwindow.mk rtWidth rtHeight "Ray Tracer"
+  let window ← GLFWwindow.mkResizable rtWidth rtHeight "Ray Tracer"
 
   let desc ← InstanceDescriptor.mk
   let inst ← createInstance desc
@@ -242,30 +306,23 @@ def rayTracer : IO Unit := do
 
   let queue ← device.getQueue
   let textureFormat ← TextureFormat.get surface adapter
-  let surfConfig ← SurfaceConfiguration.mk rtWidth rtHeight device textureFormat
+
+  -- Initial framebuffer size
+  let (initW, initH) ← window.getFramebufferSize
+  let surfConfig ← SurfaceConfiguration.mk initW initH device textureFormat
   surface.configure surfConfig
 
-  -- ── Buffers ──
-  let numPixels := rtWidth * rtHeight
-  let pixelBufSize : UInt32 := numPixels * 4
-
-  let pixelBuf ← Buffer.mk device
-    (BufferDescriptor.mk "pixels" (BufferUsage.storage.lor BufferUsage.copyDst) pixelBufSize false)
-
-  -- Compute uniforms: eye(3) + time(1) + target(3) + pad(1) + w + h + pad(2) = 48 bytes = 12 floats
+  -- ── Compute uniforms (fixed size, reused across resizes) ──
   let computeUniformSize : UInt32 := 48
   let computeUB ← Buffer.mk device
     (BufferDescriptor.mk "compute uniforms" (BufferUsage.uniform.lor BufferUsage.copyDst) computeUniformSize false)
 
-  -- Render uniforms: vec2f (width, height) = 8 bytes (pad to 16)
+  -- ── Render uniforms: vec2f (width, height), pad to 16 bytes (fixed size, reused) ──
   let renderUniformSize : UInt32 := 16
   let renderUB ← Buffer.mk device
     (BufferDescriptor.mk "render uniforms" (BufferUsage.uniform.lor BufferUsage.copyDst) renderUniformSize false)
-  queue.writeBuffer renderUB (floatsToByteArray #[rtWidth.toFloat, rtHeight.toFloat, 0.0, 0.0])
 
-  -- ── Compute pipeline ──
-  -- group 0: binding 0 = uniform (camera)
-  -- group 1: binding 0 = storage (pixels, read_write)
+  -- ── Compute pipeline (fixed across resizes) ──
   let compUniBGL ← BindGroupLayout.mkUniform device 0 ShaderStageFlags.compute computeUniformSize.toUInt64
   let compPixBGL ← BindGroupLayout.mkStorage device 0 ShaderStageFlags.compute (readOnly := false)
   let compPL ← PipelineLayout.mk device #[compUniBGL, compPixBGL]
@@ -275,64 +332,157 @@ def rayTracer : IO Unit := do
   let compShader ← ShaderModule.mk device compShaderDesc
   let computePipeline ← device.createComputePipeline compShader compPL "main"
 
+  -- Compute uniform bind group (fixed — buffer doesn't change)
   let compUniBG ← BindGroup.mk device compUniBGL 0 computeUB
-  let compPixBG ← BindGroup.mk device compPixBGL 0 pixelBuf
 
-  -- ── Render pipeline ──
-  -- group 0: binding 0 = storage (pixels, read), binding 1 = uniform (resolution)
-  -- Use mkEntries: (binding, visibility, isStorage, minBindingSize)
-  --   binding 0: isStorage=true → ReadOnlyStorage
-  --   binding 1: isStorage=false → Uniform
+  -- ── Render pipeline (fixed across resizes) ──
   let renderBGL ← BindGroupLayout.mkEntries device #[
-    (0, ShaderStageFlags.fragment, true, 0),  -- storage read-only
-    (1, ShaderStageFlags.fragment, false, renderUniformSize.toUInt64)  -- uniform
+    (0, ShaderStageFlags.fragment, true, 0),
+    (1, ShaderStageFlags.fragment, false, renderUniformSize.toUInt64)
   ]
   let renderPL ← PipelineLayout.mk device #[renderBGL]
 
   let renWGSL ← ShaderModuleWGSLDescriptor.mk rtRenderSource
   let renShaderDesc ← ShaderModuleDescriptor.mk renWGSL
   let renShader ← ShaderModule.mk device renShaderDesc
-
   let blendState ← BlendState.mk renShader
   let cts ← ColorTargetState.mk textureFormat blendState
   let fragState ← FragmentState.mk renShader cts
   let pipeDesc ← RenderPipelineDescriptor.mk renShader fragState
   let renderPipeline ← RenderPipeline.mkWithLayout device pipeDesc renderPL
 
-  -- Render bind group: pixel buffer + resolution uniform
-  let renderBG ← BindGroup.mkBuffers device renderBGL #[
-    (0, pixelBuf, 0, pixelBufSize.toUInt64),
-    (1, renderUB, 0, renderUniformSize.toUInt64)
-  ]
+  -- ── Helper: create size-dependent resources ──
+  let mkSizeResources (w h : UInt32) : IO (Buffer × BindGroup × BindGroup × UInt32 × UInt32) := do
+    let numPx := w * h
+    let pxBufSize := numPx * 4
+    let pxBuf ← Buffer.mk device
+      (BufferDescriptor.mk "pixels" (BufferUsage.storage.lor BufferUsage.copyDst) pxBufSize false)
+    -- Compute pixel bind group (group 1)
+    let compPixBG ← BindGroup.mk device compPixBGL 0 pxBuf
+    -- Render bind group (pixel buffer + resolution uniform)
+    let renBG ← BindGroup.mkBuffers device renderBGL #[
+      (0, pxBuf, 0, pxBufSize.toUInt64),
+      (1, renderUB, 0, renderUniformSize.toUInt64)
+    ]
+    -- Update render resolution uniform
+    queue.writeBuffer renderUB (floatsToByteArray #[w.toFloat, h.toFloat, 0.0, 0.0])
+    let wgX := (w + 7) / 8
+    let wgY := (h + 7) / 8
+    return (pxBuf, compPixBG, renBG, wgX, wgY)
+
+  -- Initial size-dependent resources
+  let (initPixBuf, initCompPixBG, initRenBG, initWgX, initWgY) ← mkSizeResources initW initH
 
   let clearColor := Color.mk 0.0 0.0 0.0 1.0
-  let wgX := (rtWidth + 7) / 8
-  let wgY := (rtHeight + 7) / 8
 
-  eprintln s!"Resolution: {rtWidth}×{rtHeight}, dispatch: {wgX}×{wgY} workgroups"
-  eprintln "Entering render loop (press Q or Escape to quit)..."
+  eprintln s!"Resolution: {initW}×{initH}, dispatch: {initWgX}×{initWgY} workgroups"
+  eprintln "Left-click + drag to look. WASD to move. Space/Shift up/down. Escape to quit."
+
+  -- ── Mutable render-size state ──
+  let mut curW := initW
+  let mut curH := initH
+  let mut pixelBuf := initPixBuf
+  let mut compPixBG := initCompPixBG
+  let mut renderBG := initRenBG
+  let mut wgX := initWgX
+  let mut wgY := initWgY
+
+  -- ── Camera state ──
+  let mut camX : Float := 0.0
+  let mut camY : Float := 2.5
+  let mut camZ : Float := 3.5
+  let mut yaw  : Float := 3.14159265  -- looking toward -Z (into the room)
+  let mut pitch : Float := -0.35    -- slight downward tilt
+  let mut prevTime : Float := ← GLFW.getTime
+  let mut lastMX : Float := 0.0
+  let mut lastMY : Float := 0.0
+  let mut wasDragging : Bool := false
 
   let mut frameCount : UInt32 := 0
   while not (← window.shouldClose) do
     GLFW.pollEvents
 
+    -- ── Time delta ──
+    let now ← GLFW.getTime
+    let rawDt := now - prevTime
+    let dt := if rawDt > 0.1 then 0.1 else rawDt
+    prevTime := now
+
+    -- ── Escape to quit ──
     let esc ← window.getKey GLFW.keyEscape
-    let q ← window.getKey GLFW.keyQ
-    if esc == GLFW.press || q == GLFW.press then
+    if esc == GLFW.press then
       window.setShouldClose true
       continue
 
-    -- Update camera: orbit around the scene
-    let t ← GLFW.getTime
-    let angle := t * 0.3
-    let radius := 6.0
-    let eyeX := Float.cos angle * radius
-    let eyeY := 3.0 + Float.sin (t * 0.15) * 0.8
-    let eyeZ := Float.sin angle * radius
+    -- ── Check for resize ──
+    let (fbW, fbH) ← window.getFramebufferSize
+    if fbW != curW || fbH != curH then
+      if fbW > 0 && fbH > 0 then
+        eprintln s!"Resized to {fbW}×{fbH}, recreating pixel buffer..."
+        let newConfig ← SurfaceConfiguration.mkWith fbW fbH device textureFormat
+        surface.configure newConfig
+        pixelBuf.destroy
+        let (nb, ncpbg, nrbg, nwx, nwy) ← mkSizeResources fbW fbH
+        pixelBuf := nb
+        compPixBG := ncpbg
+        renderBG := nrbg
+        wgX := nwx
+        wgY := nwy
+        curW := fbW
+        curH := fbH
+
+    -- Skip rendering if minimized
+    if curW == 0 || curH == 0 then continue
+
+    -- ── Mouse look: right-click + drag ──
+    let (mx, my) ← window.getCursorPos
+    let rmb ← window.getMouseButton GLFW.mouseButtonLeft
+    let dragging := rmb == GLFW.press
+    if dragging then
+      if wasDragging then
+        let dx := mx - lastMX
+        let dy := my - lastMY
+        let sensitivity : Float := 0.003
+        yaw   := yaw   + dx * sensitivity
+        let newPitch := pitch - dy * sensitivity
+        pitch := if newPitch > 1.5 then 1.5 else if newPitch < -1.5 then -1.5 else newPitch
+    lastMX := mx
+    lastMY := my
+    wasDragging := dragging
+
+    -- ── Forward / right vectors on XZ plane ──
+    let fwdX := Float.cos yaw
+    let fwdZ := Float.sin yaw
+    let rightX := -fwdZ
+    let rightZ := fwdX
+
+    -- ── WASD + Space/Shift movement ──
+    let speed : Float := 4.0 * dt
+    let w ← window.getKey GLFW.keyW
+    let s ← window.getKey GLFW.keyS
+    let a ← window.getKey GLFW.keyA
+    let d ← window.getKey GLFW.keyD
+    let sp ← window.getKey GLFW.keySpace
+    let sh ← window.getKey GLFW.keyLeftShift
+    if w == GLFW.press then  camX := camX + fwdX * speed;  camZ := camZ + fwdZ * speed
+    if s == GLFW.press then  camX := camX - fwdX * speed;  camZ := camZ - fwdZ * speed
+    if a == GLFW.press then  camX := camX - rightX * speed; camZ := camZ - rightZ * speed
+    if d == GLFW.press then  camX := camX + rightX * speed; camZ := camZ + rightZ * speed
+    if sp == GLFW.press then camY := camY + speed
+    if sh == GLFW.press then camY := camY - speed
+
+    -- ── Compute look-at target from yaw / pitch ──
+    let dirX := Float.cos pitch * Float.cos yaw
+    let dirY := Float.sin pitch
+    let dirZ := Float.cos pitch * Float.sin yaw
+    let tgtX := camX + dirX
+    let tgtY := camY + dirY
+    let tgtZ := camZ + dirZ
+
     let uniforms := floatsToByteArray #[
-      eyeX, eyeY, eyeZ, t,       -- eye + time
-      0.0, 0.5, 0.0, 0.0,        -- target + pad
-      rtWidth.toFloat, rtHeight.toFloat, 0.0, 0.0  -- resolution + pad
+      camX, camY, camZ, now,
+      tgtX, tgtY, tgtZ, 0.0,
+      curW.toFloat, curH.toFloat, 0.0, 0.0
     ]
     queue.writeBuffer computeUB uniforms
 
@@ -366,8 +516,8 @@ def rayTracer : IO Unit := do
 
     frameCount := frameCount + 1
     if frameCount % 120 == 0 then
-      let fps := frameCount.toFloat / t
-      window.setTitle s!"Ray Tracer - {fps.toString} fps"
+      let fps := frameCount.toFloat / now
+      window.setTitle s!"Ray Tracer ({curW}×{curH}) - {fps.toString} fps"
 
   eprintln s!"Rendered {frameCount} frames"
   pixelBuf.destroy
