@@ -7,6 +7,7 @@ namespace Wgpu
 
 alloy c include <stdio.h>
 alloy c include <stdlib.h>
+alloy c include <string.h>
 alloy c include <lean/lean.h>
 alloy c include <wgpu.h>
 alloy c include <webgpu.h>
@@ -979,18 +980,18 @@ alloy c opaque_extern_type BufferDescriptor => WGPUBufferDescriptor where
     free(ptr);
 
 abbrev BufferUsage := UInt32
-def BufferUsage.none         := 0x00000000
-def BufferUsage.mapRead      := 0x00000001
-def BufferUsage.mapWrite     := 0x00000002
-def BufferUsage.copySrc      := 0x00000004
-def BufferUsage.copyDst      := 0x00000008
-def BufferUsage.index        := 0x00000010
-def BufferUsage.vertex       := 0x00000020
-def BufferUsage.uniform      := 0x00000040
-def BufferUsage.storage      := 0x00000080
-def BufferUsage.indirect     := 0x00000100
-def BufferUsage.queryResolve := 0x00000200
-def BufferUsage.force32      := 0x7FFFFFFF
+def BufferUsage.none         : BufferUsage := 0x00000000
+def BufferUsage.mapRead      : BufferUsage := 0x00000001
+def BufferUsage.mapWrite     : BufferUsage := 0x00000002
+def BufferUsage.copySrc      : BufferUsage := 0x00000004
+def BufferUsage.copyDst      : BufferUsage := 0x00000008
+def BufferUsage.index        : BufferUsage := 0x00000010
+def BufferUsage.vertex       : BufferUsage := 0x00000020
+def BufferUsage.uniform      : BufferUsage := 0x00000040
+def BufferUsage.storage      : BufferUsage := 0x00000080
+def BufferUsage.indirect     : BufferUsage := 0x00000100
+def BufferUsage.queryResolve : BufferUsage := 0x00000200
+def BufferUsage.force32      : BufferUsage := 0x7FFFFFFF
 
 alloy c extern
 def BufferDescriptor.mk (label : String) (usage : BufferUsage)
@@ -1029,3 +1030,1437 @@ def Queue.writeBuffer (queue : Queue) (buffer : Buffer) (bytes : ByteArray) : IO
     wgpuQueueWriteBuffer(c_queue, c_buffer, 0, arr, arr_size);
     return lean_io_result_mk_ok(lean_box(0));
 }
+
+alloy c extern
+def Queue.writeBufferOffset (queue : Queue) (buffer : Buffer) (offset : UInt64) (bytes : ByteArray) : IO Unit := {
+    WGPUQueue c_queue= *of_lean<Queue>(queue);
+    WGPUBuffer c_buffer = *of_lean<Buffer>(buffer);
+    uint8_t* arr = lean_sarray_cptr(bytes);
+    size_t arr_size = lean_sarray_size(bytes);
+    wgpuQueueWriteBuffer(c_queue, c_buffer, offset, arr, arr_size);
+    return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def Buffer.getSize (buffer : Buffer) : IO UInt64 := {
+    WGPUBuffer c_buffer = *of_lean<Buffer>(buffer);
+    uint64_t sz = wgpuBufferGetSize(c_buffer);
+    return lean_io_result_mk_ok(lean_box_uint64(sz));
+}
+
+alloy c extern
+def Buffer.destroy (buffer : Buffer) : IO Unit := {
+    WGPUBuffer c_buffer = *of_lean<Buffer>(buffer);
+    wgpuBufferDestroy(c_buffer);
+    return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- # Vertex Buffer Support -/
+
+alloy c enum VertexFormat => WGPUVertexFormat
+| Undefined => WGPUVertexFormat_Undefined
+| Uint8x2 => WGPUVertexFormat_Uint8x2
+| Uint8x4 => WGPUVertexFormat_Uint8x4
+| Sint8x2 => WGPUVertexFormat_Sint8x2
+| Sint8x4 => WGPUVertexFormat_Sint8x4
+| Unorm8x2 => WGPUVertexFormat_Unorm8x2
+| Unorm8x4 => WGPUVertexFormat_Unorm8x4
+| Snorm8x2 => WGPUVertexFormat_Snorm8x2
+| Snorm8x4 => WGPUVertexFormat_Snorm8x4
+| Uint16x2 => WGPUVertexFormat_Uint16x2
+| Uint16x4 => WGPUVertexFormat_Uint16x4
+| Sint16x2 => WGPUVertexFormat_Sint16x2
+| Sint16x4 => WGPUVertexFormat_Sint16x4
+| Unorm16x2 => WGPUVertexFormat_Unorm16x2
+| Unorm16x4 => WGPUVertexFormat_Unorm16x4
+| Snorm16x2 => WGPUVertexFormat_Snorm16x2
+| Snorm16x4 => WGPUVertexFormat_Snorm16x4
+| Float16x2 => WGPUVertexFormat_Float16x2
+| Float16x4 => WGPUVertexFormat_Float16x4
+| Float32 => WGPUVertexFormat_Float32
+| Float32x2 => WGPUVertexFormat_Float32x2
+| Float32x3 => WGPUVertexFormat_Float32x3
+| Float32x4 => WGPUVertexFormat_Float32x4
+| Uint32 => WGPUVertexFormat_Uint32
+| Uint32x2 => WGPUVertexFormat_Uint32x2
+| Uint32x3 => WGPUVertexFormat_Uint32x3
+| Uint32x4 => WGPUVertexFormat_Uint32x4
+| Sint32 => WGPUVertexFormat_Sint32
+| Sint32x2 => WGPUVertexFormat_Sint32x2
+| Sint32x3 => WGPUVertexFormat_Sint32x3
+| Sint32x4 => WGPUVertexFormat_Sint32x4
+| Force32 => WGPUVertexFormat_Force32
+deriving Inhabited, Repr, BEq
+
+/-- A single vertex attribute description (format, offset, shaderLocation). -/
+structure VertexAttributeDesc where
+  format : VertexFormat
+  offset : UInt64
+  shaderLocation : UInt32
+deriving Inhabited, Repr
+
+alloy c enum VertexStepMode => WGPUVertexStepMode
+| Vertex => WGPUVertexStepMode_Vertex
+| Instance => WGPUVertexStepMode_Instance
+| VertexBufferNotUsed => WGPUVertexStepMode_VertexBufferNotUsed
+| Force32 => WGPUVertexStepMode_Force32
+deriving Inhabited, Repr, BEq
+
+/-- Description of a vertex buffer layout (stride, stepMode, attributes). -/
+structure VertexBufferLayoutDesc where
+  arrayStride : UInt64
+  stepMode : VertexStepMode
+  attributes : Array VertexAttributeDesc
+deriving Inhabited, Repr
+
+alloy c enum IndexFormat => WGPUIndexFormat
+| Undefined => WGPUIndexFormat_Undefined
+| Uint16 => WGPUIndexFormat_Uint16
+| Uint32 => WGPUIndexFormat_Uint32
+| Force32 => WGPUIndexFormat_Force32
+deriving Inhabited, Repr, BEq
+
+/-- Set a vertex buffer on a render pass encoder. Uses WGPU_WHOLE_SIZE for the buffer. -/
+alloy c extern
+def RenderPassEncoder.setVertexBuffer (r : RenderPassEncoder) (slot : UInt32) (buffer : Buffer)
+    (offset : UInt64 := 0) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  uint64_t size = wgpuBufferGetSize(*c_buffer) - offset;
+  wgpuRenderPassEncoderSetVertexBuffer(*renderPass, slot, *c_buffer, offset, size);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set an index buffer on a render pass encoder. -/
+alloy c extern
+def RenderPassEncoder.setIndexBuffer (r : RenderPassEncoder) (buffer : Buffer) (format : IndexFormat)
+    (offset : UInt64 := 0) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  uint64_t size = wgpuBufferGetSize(*c_buffer) - offset;
+  wgpuRenderPassEncoderSetIndexBuffer(*renderPass, *c_buffer, of_lean<IndexFormat>(format), offset, size);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Draw indexed primitives. -/
+alloy c extern
+def RenderPassEncoder.drawIndexed (r : RenderPassEncoder) (indexCount instanceCount firstIndex : UInt32)
+    (baseVertex : Int32 := 0) (firstInstance : UInt32 := 0) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderDrawIndexed(*renderPass, indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the viewport on a render pass encoder. -/
+alloy c extern
+def RenderPassEncoder.setViewport (r : RenderPassEncoder) (x y width height minDepth maxDepth : Float) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderSetViewport(*renderPass, x, y, width, height, minDepth, maxDepth);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Set the scissor rect on a render pass encoder. -/
+alloy c extern
+def RenderPassEncoder.setScissorRect (r : RenderPassEncoder) (x y width height : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderSetScissorRect(*renderPass, x, y, width, height);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- # RenderPassEncoder with configurable clear color -/
+
+alloy c extern
+def RenderPassEncoder.mkWithColor (encoder : CommandEncoder) (view : TextureView) (color : Color) : IO RenderPassEncoder := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+  WGPURenderPassDescriptor *renderPassDesc = calloc(1,sizeof(WGPURenderPassDescriptor));
+  renderPassDesc->nextInChain = NULL;
+
+  WGPURenderPassColorAttachment *renderPassColorAttachment = calloc(1,sizeof(WGPURenderPassColorAttachment));
+  WGPUTextureView *c_view = of_lean<TextureView>(view)
+  renderPassColorAttachment->view = *c_view;
+  renderPassColorAttachment->resolveTarget = NULL;
+  renderPassColorAttachment->loadOp = WGPULoadOp_Clear;
+  renderPassColorAttachment->storeOp = WGPUStoreOp_Store;
+  WGPUColor *c_color = of_lean<Color>(color);
+  renderPassColorAttachment->clearValue = *c_color;
+
+  renderPassDesc->colorAttachmentCount = 1;
+  renderPassDesc->colorAttachments = renderPassColorAttachment;
+  renderPassDesc->depthStencilAttachment = NULL;
+  renderPassDesc->timestampWrites = NULL;
+
+  WGPURenderPassEncoder *renderPass = calloc(1,sizeof(WGPURenderPassEncoder));
+  *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+  return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
+}
+
+/- # RenderPipeline with Vertex Buffers -/
+
+/--
+  Create a render pipeline descriptor with vertex buffer layouts.
+  `vertexBufferLayouts` is an array of `(arrayStride, stepMode, Array (format, offset, shaderLocation))`.
+-/
+alloy c extern
+def RenderPipelineDescriptor.mkWithVertexBuffers
+    (shaderModule : ShaderModule)
+    (fState : FragmentState)
+    (vertexEntryPoint : String := "vs_main")
+    (strides : @& Array UInt64)
+    (stepModes : @& Array UInt32)
+    (attrFormats : @& Array UInt32)
+    (attrOffsets : @& Array UInt64)
+    (attrShaderLocations : @& Array UInt32)
+    (attrBufferIndices : @& Array UInt32)
+    (bufferCount : UInt32)
+    : IO RenderPipelineDescriptor := {
+  WGPUShaderModule *c_shaderModule = of_lean<ShaderModule>(shaderModule);
+  WGPUFragmentState *fragmentState = of_lean<FragmentState>(fState);
+
+  uint32_t nBuffers = bufferCount;
+  size_t nAttrs = lean_array_size(attrFormats);
+
+  -- Allocate vertex buffer layouts
+  WGPUVertexBufferLayout *bufferLayouts = calloc(nBuffers, sizeof(WGPUVertexBufferLayout));
+  for (uint32_t i = 0; i < nBuffers; i++) {
+    bufferLayouts[i].arrayStride = lean_unbox_uint64(lean_array_uget(strides, i));
+    bufferLayouts[i].stepMode = (WGPUVertexStepMode)lean_unbox(lean_array_uget(stepModes, i));
+    bufferLayouts[i].attributeCount = 0;
+    bufferLayouts[i].attributes = NULL;
+  }
+
+  -- Count attributes per buffer
+  for (size_t i = 0; i < nAttrs; i++) {
+    uint32_t bufIdx = lean_unbox(lean_array_uget(attrBufferIndices, i));
+    bufferLayouts[bufIdx].attributeCount++;
+  }
+
+  -- Allocate attributes per buffer
+  WGPUVertexAttribute **attrArrays = calloc(nBuffers, sizeof(WGPUVertexAttribute*));
+  uint32_t *attrCounters = calloc(nBuffers, sizeof(uint32_t));
+  for (uint32_t i = 0; i < nBuffers; i++) {
+    attrArrays[i] = calloc(bufferLayouts[i].attributeCount, sizeof(WGPUVertexAttribute));
+    bufferLayouts[i].attributes = attrArrays[i];
+  }
+
+  -- Fill in attributes
+  for (size_t i = 0; i < nAttrs; i++) {
+    uint32_t bufIdx = lean_unbox(lean_array_uget(attrBufferIndices, i));
+    uint32_t ai = attrCounters[bufIdx]++;
+    attrArrays[bufIdx][ai].format = (WGPUVertexFormat)lean_unbox(lean_array_uget(attrFormats, i));
+    attrArrays[bufIdx][ai].offset = lean_unbox_uint64(lean_array_uget(attrOffsets, i));
+    attrArrays[bufIdx][ai].shaderLocation = lean_unbox(lean_array_uget(attrShaderLocations, i));
+  }
+  free(attrCounters);
+  free(attrArrays);
+
+  WGPURenderPipelineDescriptor *pipelineDesc = calloc(1,sizeof(WGPURenderPipelineDescriptor));
+  pipelineDesc->nextInChain = NULL;
+
+  pipelineDesc->vertex.bufferCount = nBuffers;
+  pipelineDesc->vertex.buffers = bufferLayouts;
+  pipelineDesc->vertex.module = *c_shaderModule;
+  pipelineDesc->vertex.entryPoint = lean_string_cstr(vertexEntryPoint);
+  pipelineDesc->vertex.constantCount = 0;
+  pipelineDesc->vertex.constants = NULL;
+
+  pipelineDesc->primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc->primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc->primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc->primitive.cullMode = WGPUCullMode_None;
+
+  pipelineDesc->fragment = fragmentState;
+  pipelineDesc->depthStencil = NULL;
+  pipelineDesc->multisample.count = 1;
+  pipelineDesc->multisample.mask = 0xFFFFFFFF;
+  pipelineDesc->multisample.alphaToCoverageEnabled = false;
+  pipelineDesc->layout = NULL;
+
+  return lean_io_result_mk_ok(to_lean<RenderPipelineDescriptor>(pipelineDesc));
+}
+
+/-- Helper: Build a RenderPipelineDescriptor from pure Lean VertexBufferLayoutDesc array. -/
+def RenderPipelineDescriptor.mkWithLayouts
+    (shaderModule : ShaderModule)
+    (fState : FragmentState)
+    (layouts : Array VertexBufferLayoutDesc)
+    (vertexEntryPoint : String := "vs_main")
+    : IO RenderPipelineDescriptor := do
+  let mut strides : Array UInt64 := #[]
+  let mut stepModes : Array UInt32 := #[]
+  let mut attrFormats : Array UInt32 := #[]
+  let mut attrOffsets : Array UInt64 := #[]
+  let mut attrShaderLocations : Array UInt32 := #[]
+  let mut attrBufferIndices : Array UInt32 := #[]
+  for h : i in [:layouts.size] do
+    let layout := layouts[i]
+    strides := strides.push layout.arrayStride
+    stepModes := stepModes.push (match layout.stepMode with
+      | .Vertex => 0 | .Instance => 1 | .VertexBufferNotUsed => 2 | .Force32 => 3)
+    for attr in layout.attributes do
+      attrFormats := attrFormats.push (match attr.format with
+        | .Undefined => 0 | .Uint8x2 => 1 | .Uint8x4 => 2 | .Sint8x2 => 3 | .Sint8x4 => 4
+        | .Unorm8x2 => 5 | .Unorm8x4 => 6 | .Snorm8x2 => 7 | .Snorm8x4 => 8
+        | .Uint16x2 => 9 | .Uint16x4 => 10 | .Sint16x2 => 11 | .Sint16x4 => 12
+        | .Unorm16x2 => 13 | .Unorm16x4 => 14 | .Snorm16x2 => 15 | .Snorm16x4 => 16
+        | .Float16x2 => 17 | .Float16x4 => 18
+        | .Float32 => 19 | .Float32x2 => 20 | .Float32x3 => 21 | .Float32x4 => 22
+        | .Uint32 => 23 | .Uint32x2 => 24 | .Uint32x3 => 25 | .Uint32x4 => 26
+        | .Sint32 => 27 | .Sint32x2 => 28 | .Sint32x3 => 29 | .Sint32x4 => 30
+        | .Force32 => 31)
+      attrOffsets := attrOffsets.push attr.offset
+      attrShaderLocations := attrShaderLocations.push attr.shaderLocation
+      attrBufferIndices := attrBufferIndices.push i.toUInt32
+  RenderPipelineDescriptor.mkWithVertexBuffers shaderModule fState vertexEntryPoint
+    strides stepModes attrFormats attrOffsets attrShaderLocations attrBufferIndices layouts.size.toUInt32
+
+/- # Bind Group Support -/
+
+alloy c opaque_extern_type BindGroupLayout => WGPUBindGroupLayout where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUBindGroupLayout \n");
+    wgpuBindGroupLayoutRelease(*ptr);
+    free(ptr);
+
+alloy c opaque_extern_type BindGroup => WGPUBindGroup where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUBindGroup \n");
+    wgpuBindGroupRelease(*ptr);
+    free(ptr);
+
+alloy c opaque_extern_type PipelineLayout => WGPUPipelineLayout where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUPipelineLayout \n");
+    wgpuPipelineLayoutRelease(*ptr);
+    free(ptr);
+
+/-- Create a bind group layout with a single uniform buffer binding at the given binding index. -/
+alloy c extern
+def BindGroupLayout.mkUniform (device : Device) (binding : UInt32) (visibility : UInt32)
+    (minBindingSize : UInt64 := 0) : IO BindGroupLayout := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUBindGroupLayoutEntry *entry = calloc(1, sizeof(WGPUBindGroupLayoutEntry));
+  entry->binding = binding;
+  entry->visibility = visibility;
+  entry->buffer.type = WGPUBufferBindingType_Uniform;
+  entry->buffer.hasDynamicOffset = false;
+  entry->buffer.minBindingSize = minBindingSize;
+  -- Zero-init the rest
+  entry->sampler.type = WGPUSamplerBindingType_Undefined;
+  entry->texture.sampleType = WGPUTextureSampleType_Undefined;
+  entry->storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  WGPUBindGroupLayoutDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Uniform bind group layout";
+  desc.entryCount = 1;
+  desc.entries = entry;
+
+  WGPUBindGroupLayout *layout = calloc(1, sizeof(WGPUBindGroupLayout));
+  *layout = wgpuDeviceCreateBindGroupLayout(c_device, &desc);
+  free(entry);
+  return lean_io_result_mk_ok(to_lean<BindGroupLayout>(layout));
+}
+
+/-- Create a bind group that binds a buffer to a layout. -/
+alloy c extern
+def BindGroup.mk (device : Device) (layout : BindGroupLayout) (binding : UInt32)
+    (buffer : Buffer) (offset : UInt64 := 0) (size : UInt64 := 0) : IO BindGroup := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  WGPUBindGroupLayout *c_layout = of_lean<BindGroupLayout>(layout);
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+
+  uint64_t bufSize = size;
+  if (bufSize == 0) {
+    bufSize = wgpuBufferGetSize(*c_buffer) - offset;
+  }
+
+  WGPUBindGroupEntry *entry = calloc(1, sizeof(WGPUBindGroupEntry));
+  entry->nextInChain = NULL;
+  entry->binding = binding;
+  entry->buffer = *c_buffer;
+  entry->offset = offset;
+  entry->size = bufSize;
+  entry->sampler = NULL;
+  entry->textureView = NULL;
+
+  WGPUBindGroupDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Bind group";
+  desc.layout = *c_layout;
+  desc.entryCount = 1;
+  desc.entries = entry;
+
+  WGPUBindGroup *bg = calloc(1, sizeof(WGPUBindGroup));
+  *bg = wgpuDeviceCreateBindGroup(c_device, &desc);
+  free(entry);
+  return lean_io_result_mk_ok(to_lean<BindGroup>(bg));
+}
+
+/-- Create a pipeline layout from an array of bind group layouts. -/
+alloy c extern
+def PipelineLayout.mk (device : Device) (layouts : @& Array BindGroupLayout) : IO PipelineLayout := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  size_t n = lean_array_size(layouts);
+  WGPUBindGroupLayout *c_layouts = calloc(n, sizeof(WGPUBindGroupLayout));
+  for (size_t i = 0; i < n; i++) {
+    lean_object *obj = lean_array_uget(layouts, i);
+    WGPUBindGroupLayout *l = of_lean<BindGroupLayout>(obj);
+    c_layouts[i] = *l;
+  }
+  WGPUPipelineLayoutDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Pipeline layout";
+  desc.bindGroupLayoutCount = n;
+  desc.bindGroupLayouts = c_layouts;
+
+  WGPUPipelineLayout *pl = calloc(1, sizeof(WGPUPipelineLayout));
+  *pl = wgpuDeviceCreatePipelineLayout(c_device, &desc);
+  free(c_layouts);
+  return lean_io_result_mk_ok(to_lean<PipelineLayout>(pl));
+}
+
+/-- Set a bind group on a render pass encoder. -/
+alloy c extern
+def RenderPassEncoder.setBindGroup (r : RenderPassEncoder) (groupIndex : UInt32) (bg : BindGroup) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  WGPUBindGroup *c_bg = of_lean<BindGroup>(bg);
+  wgpuRenderPassEncoderSetBindGroup(*renderPass, groupIndex, *c_bg, 0, NULL);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Create a render pipeline with an explicit pipeline layout. -/
+alloy c extern
+def RenderPipeline.mkWithLayout (device : Device) (pipelineDesc : RenderPipelineDescriptor) (layout : PipelineLayout) : IO RenderPipeline := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPURenderPipelineDescriptor *c_pipelineDesc = of_lean<RenderPipelineDescriptor>(pipelineDesc);
+  WGPUPipelineLayout *c_layout = of_lean<PipelineLayout>(layout);
+  c_pipelineDesc->layout = *c_layout;
+  WGPURenderPipeline *pipeline = calloc(1,sizeof(WGPURenderPipeline));
+  *pipeline = wgpuDeviceCreateRenderPipeline(*c_device, c_pipelineDesc);
+  return lean_io_result_mk_ok(to_lean<RenderPipeline>(pipeline));
+}
+
+/- # Shader Stage Flags -/
+abbrev ShaderStageFlags := UInt32
+def ShaderStageFlags.none     : ShaderStageFlags := 0x00000000
+def ShaderStageFlags.vertex   : ShaderStageFlags := 0x00000001
+def ShaderStageFlags.fragment : ShaderStageFlags := 0x00000002
+def ShaderStageFlags.compute  : ShaderStageFlags := 0x00000004
+
+/- # Adapter / Device Limits -/
+
+structure Limits where
+  maxTextureDimension1D : UInt32
+  maxTextureDimension2D : UInt32
+  maxTextureDimension3D : UInt32
+  maxTextureArrayLayers : UInt32
+  maxBindGroups : UInt32
+  maxDynamicUniformBuffersPerPipelineLayout : UInt32
+  maxDynamicStorageBuffersPerPipelineLayout : UInt32
+  maxSampledTexturesPerShaderStage : UInt32
+  maxSamplersPerShaderStage : UInt32
+  maxStorageBuffersPerShaderStage : UInt32
+  maxStorageTexturesPerShaderStage : UInt32
+  maxUniformBuffersPerShaderStage : UInt32
+  maxUniformBufferBindingSize : UInt64
+  maxStorageBufferBindingSize : UInt64
+  maxVertexBuffers : UInt32
+  maxVertexAttributes : UInt32
+  maxVertexBufferArrayStride : UInt32
+  maxComputeWorkgroupSizeX : UInt32
+  maxComputeWorkgroupSizeY : UInt32
+  maxComputeWorkgroupSizeZ : UInt32
+  maxComputeWorkgroupsPerDimension : UInt32
+deriving Repr
+
+/-- Helper to construct Limits — this ensures the ABI matches between Lean and C. -/
+@[export lean_wgpu_mk_limits]
+def mkLimits
+    (f0 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 : UInt32)
+    (f12 f13 : UInt64)
+    (f14 f15 f16 f17 f18 f19 f20 : UInt32)
+    : Limits :=
+  { maxTextureDimension1D := f0
+    maxTextureDimension2D := f1
+    maxTextureDimension3D := f2
+    maxTextureArrayLayers := f3
+    maxBindGroups := f4
+    maxDynamicUniformBuffersPerPipelineLayout := f5
+    maxDynamicStorageBuffersPerPipelineLayout := f6
+    maxSampledTexturesPerShaderStage := f7
+    maxSamplersPerShaderStage := f8
+    maxStorageBuffersPerShaderStage := f9
+    maxStorageTexturesPerShaderStage := f10
+    maxUniformBuffersPerShaderStage := f11
+    maxUniformBufferBindingSize := f12
+    maxStorageBufferBindingSize := f13
+    maxVertexBuffers := f14
+    maxVertexAttributes := f15
+    maxVertexBufferArrayStride := f16
+    maxComputeWorkgroupSizeX := f17
+    maxComputeWorkgroupSizeY := f18
+    maxComputeWorkgroupSizeZ := f19
+    maxComputeWorkgroupsPerDimension := f20 }
+
+alloy c section
+  extern lean_object* lean_wgpu_mk_limits(
+    uint32_t f0, uint32_t f1, uint32_t f2, uint32_t f3,
+    uint32_t f4, uint32_t f5, uint32_t f6, uint32_t f7,
+    uint32_t f8, uint32_t f9, uint32_t f10, uint32_t f11,
+    uint64_t f12, uint64_t f13,
+    uint32_t f14, uint32_t f15, uint32_t f16, uint32_t f17,
+    uint32_t f18, uint32_t f19, uint32_t f20);
+
+  lean_object* limits_to_lean(WGPULimits *l) {
+    return lean_wgpu_mk_limits(
+      l->maxTextureDimension1D,
+      l->maxTextureDimension2D,
+      l->maxTextureDimension3D,
+      l->maxTextureArrayLayers,
+      l->maxBindGroups,
+      l->maxDynamicUniformBuffersPerPipelineLayout,
+      l->maxDynamicStorageBuffersPerPipelineLayout,
+      l->maxSampledTexturesPerShaderStage,
+      l->maxSamplersPerShaderStage,
+      l->maxStorageBuffersPerShaderStage,
+      l->maxStorageTexturesPerShaderStage,
+      l->maxUniformBuffersPerShaderStage,
+      l->maxUniformBufferBindingSize,
+      l->maxStorageBufferBindingSize,
+      l->maxVertexBuffers,
+      l->maxVertexAttributes,
+      l->maxVertexBufferArrayStride,
+      l->maxComputeWorkgroupSizeX,
+      l->maxComputeWorkgroupSizeY,
+      l->maxComputeWorkgroupSizeZ,
+      l->maxComputeWorkgroupsPerDimension
+    );
+  }
+end
+
+alloy c extern
+def Adapter.getLimits (adapter : Adapter) : IO Limits := {
+  WGPUAdapter *c_adapter = of_lean<Adapter>(adapter);
+  WGPUSupportedLimits supported = {};
+  supported.nextInChain = NULL;
+  wgpuAdapterGetLimits(*c_adapter, &supported);
+  return lean_io_result_mk_ok(limits_to_lean(&supported.limits));
+}
+
+alloy c extern
+def Device.getLimits (device : Device) : IO Limits := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPUSupportedLimits supported = {};
+  supported.nextInChain = NULL;
+  wgpuDeviceGetLimits(*c_device, &supported);
+  return lean_io_result_mk_ok(limits_to_lean(&supported.limits));
+}
+
+alloy c extern
+def Adapter.hasFeature (adapter : Adapter) (feature : Feature) : IO Bool := {
+  WGPUAdapter *c_adapter = of_lean<Adapter>(adapter);
+  WGPUFeatureName fn = of_lean<Feature>(feature);
+  WGPUBool has = wgpuAdapterHasFeature(*c_adapter, fn);
+  return lean_io_result_mk_ok(lean_box(has));
+}
+
+/-- Query all features supported by the adapter. -/
+alloy c extern def Adapter.features (adapter : Adapter) : IO (Array Feature) := {
+  WGPUAdapter c_adapter = *of_lean<Adapter>(adapter);
+  size_t n = wgpuAdapterEnumerateFeatures(c_adapter, NULL);
+  WGPUFeatureName *features = calloc(n, sizeof(WGPUFeatureName));
+  wgpuAdapterEnumerateFeatures(c_adapter, features);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
+  for (size_t i = 0; i < n; i++) {
+    lean_array_push(array, lean_box(to_lean<Feature>(features[i])));
+  }
+  free(features);
+  return lean_io_result_mk_ok(array);
+}
+
+/- # Float-based ByteArray helpers for vertex data -/
+
+/-- Convert an array of floats to a ByteArray (little-endian float32). -/
+alloy c extern
+def floatsToByteArray (arr : @& Array Float) : ByteArray := {
+  size_t n = lean_array_size(arr);
+  size_t byte_count = n * sizeof(float);
+  lean_object *ba = lean_alloc_sarray(1, byte_count, byte_count);
+  uint8_t *ptr = lean_sarray_cptr(ba);
+  for (size_t i = 0; i < n; i++) {
+    double d = lean_unbox_float(lean_array_uget(arr, i));
+    float f = (float)d;
+    memcpy(ptr + i * sizeof(float), &f, sizeof(float));
+  }
+  return ba;
+}
+
+/-- Convert an array of UInt16 to a ByteArray (little-endian). -/
+alloy c extern
+def uint16sToByteArray (arr : @& Array UInt16) : ByteArray := {
+  size_t n = lean_array_size(arr);
+  size_t byte_count = n * sizeof(uint16_t);
+  lean_object *ba = lean_alloc_sarray(1, byte_count, byte_count);
+  uint8_t *ptr = lean_sarray_cptr(ba);
+  for (size_t i = 0; i < n; i++) {
+    uint16_t v = lean_unbox(lean_array_uget(arr, i));
+    memcpy(ptr + i * sizeof(uint16_t), &v, sizeof(uint16_t));
+  }
+  return ba;
+}
+
+/-- Convert an array of UInt32 to a ByteArray (little-endian). -/
+alloy c extern
+def uint32sToByteArray (arr : @& Array UInt32) : ByteArray := {
+  size_t n = lean_array_size(arr);
+  size_t byte_count = n * sizeof(uint32_t);
+  lean_object *ba = lean_alloc_sarray(1, byte_count, byte_count);
+  uint8_t *ptr = lean_sarray_cptr(ba);
+  for (size_t i = 0; i < n; i++) {
+    uint32_t v = lean_unbox(lean_array_uget(arr, i));
+    memcpy(ptr + i * sizeof(uint32_t), &v, sizeof(uint32_t));
+  }
+  return ba;
+}
+
+/-- Read UInt32 values from a ByteArray (little-endian). -/
+alloy c extern
+def byteArrayToUInt32s (arr : @& ByteArray) : Array UInt32 := {
+  size_t byte_count = lean_sarray_size(arr);
+  size_t n = byte_count / sizeof(uint32_t);
+  uint8_t *ptr = lean_sarray_cptr(arr);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
+  for (size_t i = 0; i < n; i++) {
+    uint32_t v;
+    memcpy(&v, ptr + i * sizeof(uint32_t), sizeof(uint32_t));
+    array = lean_array_push(array, lean_box(v));
+  }
+  return array;
+}
+
+/-- Read Float values from a ByteArray (little-endian float32). -/
+alloy c extern
+def byteArrayToFloats (arr : @& ByteArray) : Array Float := {
+  size_t byte_count = lean_sarray_size(arr);
+  size_t n = byte_count / sizeof(float);
+  uint8_t *ptr = lean_sarray_cptr(arr);
+  lean_object *array = lean_mk_array(lean_box(0), lean_box(0));
+  for (size_t i = 0; i < n; i++) {
+    float f;
+    memcpy(&f, ptr + i * sizeof(float), sizeof(float));
+    array = lean_array_push(array, lean_box_float((double)f));
+  }
+  return array;
+}
+
+/-- Generate RGBA pixel data for a checkerboard pattern. -/
+def mkCheckerboard (width height tileSize : UInt32)
+    (color1 : UInt32 := 0xFF4488FF) (color2 : UInt32 := 0xFF222222) : ByteArray := Id.run do
+  let mut bytes : ByteArray := ByteArray.mk #[]
+  for y in [:height.toNat] do
+    for x in [:width.toNat] do
+      let tileX := x / tileSize.toNat
+      let tileY := y / tileSize.toNat
+      let color := if (tileX + tileY) % 2 == 0 then color1 else color2
+      -- RGBA little-endian
+      bytes := bytes.push (color &&& 0xFF).toUInt8
+      bytes := bytes.push ((color >>> 8) &&& 0xFF).toUInt8
+      bytes := bytes.push ((color >>> 16) &&& 0xFF).toUInt8
+      bytes := bytes.push ((color >>> 24) &&& 0xFF).toUInt8
+  return bytes
+
+/- # Texture Support -/
+
+abbrev TextureUsage := UInt32
+def TextureUsage.none             : TextureUsage := 0x00000000
+def TextureUsage.copySrc          : TextureUsage := 0x00000001
+def TextureUsage.copyDst          : TextureUsage := 0x00000002
+def TextureUsage.textureBinding   : TextureUsage := 0x00000004
+def TextureUsage.storageBinding   : TextureUsage := 0x00000008
+def TextureUsage.renderAttachment : TextureUsage := 0x00000010
+
+alloy c opaque_extern_type Texture => WGPUTexture where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUTexture\n");
+    wgpuTextureRelease(*ptr);
+    free(ptr);
+
+/-- Create a 2D texture. -/
+alloy c extern
+def Device.createTexture (device : Device) (width height : UInt32)
+    (format : TextureFormat) (usage : TextureUsage)
+    (mipLevelCount : UInt32 := 1) (sampleCount : UInt32 := 1)
+    : IO Texture := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUTextureDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Texture";
+  desc.usage = usage;
+  desc.dimension = WGPUTextureDimension_2D;
+  desc.size.width = width;
+  desc.size.height = height;
+  desc.size.depthOrArrayLayers = 1;
+  desc.format = of_lean<TextureFormat>(format);
+  desc.mipLevelCount = mipLevelCount;
+  desc.sampleCount = sampleCount;
+  desc.viewFormatCount = 0;
+  desc.viewFormats = NULL;
+
+  WGPUTexture *tex = calloc(1, sizeof(WGPUTexture));
+  *tex = wgpuDeviceCreateTexture(c_device, &desc);
+  return lean_io_result_mk_ok(to_lean<Texture>(tex));
+}
+
+/-- Create a TextureView from a Texture (2D, all mips, all layers). -/
+alloy c extern
+def Texture.createView (texture : Texture) (format : TextureFormat) : IO TextureView := {
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+
+  WGPUTextureViewDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Texture view";
+  desc.format = of_lean<TextureFormat>(format);
+  desc.dimension = WGPUTextureViewDimension_2D;
+  desc.baseMipLevel = 0;
+  desc.mipLevelCount = 1;
+  desc.baseArrayLayer = 0;
+  desc.arrayLayerCount = 1;
+  desc.aspect = WGPUTextureAspect_All;
+
+  WGPUTextureView *view = calloc(1, sizeof(WGPUTextureView));
+  *view = wgpuTextureCreateView(*c_tex, &desc);
+  return lean_io_result_mk_ok(to_lean<TextureView>(view));
+}
+
+/-- Write pixel data to a 2D texture. -/
+alloy c extern
+def Queue.writeTexture (queue : Queue) (texture : Texture) (data : ByteArray)
+    (width height : UInt32) (bytesPerRow : UInt32) : IO Unit := {
+  WGPUQueue c_queue = *of_lean<Queue>(queue);
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+
+  WGPUImageCopyTexture dest = {};
+  dest.texture = *c_tex;
+  dest.mipLevel = 0;
+  dest.origin = (WGPUOrigin3D){0, 0, 0};
+  dest.aspect = WGPUTextureAspect_All;
+
+  WGPUTextureDataLayout layout = {};
+  layout.nextInChain = NULL;
+  layout.offset = 0;
+  layout.bytesPerRow = bytesPerRow;
+  layout.rowsPerImage = height;
+
+  WGPUExtent3D extent = {width, height, 1};
+
+  uint8_t *ptr = lean_sarray_cptr(data);
+  size_t dataSize = lean_sarray_size(data);
+  wgpuQueueWriteTexture(c_queue, &dest, ptr, dataSize, &layout, &extent);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Destroy a texture object. -/
+alloy c extern
+def Texture.destroy (texture : Texture) : IO Unit := {
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+  wgpuTextureDestroy(*c_tex);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- # Sampler Support -/
+
+alloy c enum AddressMode => WGPUAddressMode
+| Repeat => WGPUAddressMode_Repeat
+| MirrorRepeat => WGPUAddressMode_MirrorRepeat
+| ClampToEdge => WGPUAddressMode_ClampToEdge
+| Force32 => WGPUAddressMode_Force32
+deriving Inhabited, Repr, BEq
+
+alloy c enum FilterMode => WGPUFilterMode
+| Nearest => WGPUFilterMode_Nearest
+| Linear => WGPUFilterMode_Linear
+| Force32 => WGPUFilterMode_Force32
+deriving Inhabited, Repr, BEq
+
+alloy c opaque_extern_type Sampler => WGPUSampler where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUSampler\n");
+    wgpuSamplerRelease(*ptr);
+    free(ptr);
+
+/-- Create a sampler with configurable filtering and address modes. -/
+alloy c extern
+def Device.createSampler (device : Device)
+    (magFilter : FilterMode := FilterMode.Linear)
+    (minFilter : FilterMode := FilterMode.Linear)
+    (addressModeU : AddressMode := AddressMode.ClampToEdge)
+    (addressModeV : AddressMode := AddressMode.ClampToEdge)
+    : IO Sampler := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUSamplerDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Sampler";
+  desc.addressModeU = of_lean<AddressMode>(addressModeU);
+  desc.addressModeV = of_lean<AddressMode>(addressModeV);
+  desc.addressModeW = WGPUAddressMode_ClampToEdge;
+  desc.magFilter = of_lean<FilterMode>(magFilter);
+  desc.minFilter = of_lean<FilterMode>(minFilter);
+  desc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+  desc.lodMinClamp = 0.0f;
+  desc.lodMaxClamp = 1.0f;
+  desc.compare = WGPUCompareFunction_Undefined;
+  desc.maxAnisotropy = 1;
+
+  WGPUSampler *sampler = calloc(1, sizeof(WGPUSampler));
+  *sampler = wgpuDeviceCreateSampler(c_device, &desc);
+  return lean_io_result_mk_ok(to_lean<Sampler>(sampler));
+}
+
+/-- Create a bind group layout with a texture + sampler pair. -/
+alloy c extern
+def BindGroupLayout.mkTextureSampler (device : Device)
+    (textureBinding samplerBinding : UInt32) (visibility : UInt32)
+    : IO BindGroupLayout := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUBindGroupLayoutEntry *entries = calloc(2, sizeof(WGPUBindGroupLayoutEntry));
+
+  entries[0].binding = textureBinding;
+  entries[0].visibility = visibility;
+  entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+  entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+  entries[0].texture.multisampled = false;
+  entries[0].buffer.type = WGPUBufferBindingType_Undefined;
+  entries[0].sampler.type = WGPUSamplerBindingType_Undefined;
+  entries[0].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  entries[1].binding = samplerBinding;
+  entries[1].visibility = visibility;
+  entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+  entries[1].texture.sampleType = WGPUTextureSampleType_Undefined;
+  entries[1].buffer.type = WGPUBufferBindingType_Undefined;
+  entries[1].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  WGPUBindGroupLayoutDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Texture+Sampler bind group layout";
+  desc.entryCount = 2;
+  desc.entries = entries;
+
+  WGPUBindGroupLayout *layout = calloc(1, sizeof(WGPUBindGroupLayout));
+  *layout = wgpuDeviceCreateBindGroupLayout(c_device, &desc);
+  free(entries);
+  return lean_io_result_mk_ok(to_lean<BindGroupLayout>(layout));
+}
+
+/-- Create a bind group that binds a texture view and sampler. -/
+alloy c extern
+def BindGroup.mkTextureSampler (device : Device) (layout : BindGroupLayout)
+    (textureBinding : UInt32) (textureView : TextureView)
+    (samplerBinding : UInt32) (sampler : Sampler)
+    : IO BindGroup := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  WGPUBindGroupLayout *c_layout = of_lean<BindGroupLayout>(layout);
+  WGPUTextureView *c_view = of_lean<TextureView>(textureView);
+  WGPUSampler *c_sampler = of_lean<Sampler>(sampler);
+
+  WGPUBindGroupEntry *entries = calloc(2, sizeof(WGPUBindGroupEntry));
+
+  entries[0].binding = textureBinding;
+  entries[0].textureView = *c_view;
+  entries[0].sampler = NULL;
+  entries[0].buffer = NULL;
+  entries[0].offset = 0;
+  entries[0].size = 0;
+
+  entries[1].binding = samplerBinding;
+  entries[1].sampler = *c_sampler;
+  entries[1].textureView = NULL;
+  entries[1].buffer = NULL;
+  entries[1].offset = 0;
+  entries[1].size = 0;
+
+  WGPUBindGroupDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Texture+Sampler bind group";
+  desc.layout = *c_layout;
+  desc.entryCount = 2;
+  desc.entries = entries;
+
+  WGPUBindGroup *bg = calloc(1, sizeof(WGPUBindGroup));
+  *bg = wgpuDeviceCreateBindGroup(c_device, &desc);
+  free(entries);
+  return lean_io_result_mk_ok(to_lean<BindGroup>(bg));
+}
+
+/- # Compute Pipeline Support -/
+
+alloy c opaque_extern_type ComputePipeline => WGPUComputePipeline where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUComputePipeline\n");
+    wgpuComputePipelineRelease(*ptr);
+    free(ptr);
+
+alloy c opaque_extern_type ComputePassEncoder => WGPUComputePassEncoder where
+  finalize(ptr) :=
+    fprintf(stderr, "finalize WGPUComputePassEncoder\n");
+    wgpuComputePassEncoderRelease(*ptr);
+    free(ptr);
+
+/-- Create a compute pipeline with an explicit layout. -/
+alloy c extern
+def Device.createComputePipeline (device : Device) (shaderModule : ShaderModule)
+    (layout : PipelineLayout) (entryPoint : String := "main") : IO ComputePipeline := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  WGPUShaderModule *c_shader = of_lean<ShaderModule>(shaderModule);
+  WGPUPipelineLayout *c_layout = of_lean<PipelineLayout>(layout);
+
+  WGPUComputePipelineDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Compute pipeline";
+  desc.layout = *c_layout;
+  desc.compute.module = *c_shader;
+  desc.compute.entryPoint = lean_string_cstr(entryPoint);
+  desc.compute.constantCount = 0;
+  desc.compute.constants = NULL;
+
+  WGPUComputePipeline *pipeline = calloc(1, sizeof(WGPUComputePipeline));
+  *pipeline = wgpuDeviceCreateComputePipeline(c_device, &desc);
+  return lean_io_result_mk_ok(to_lean<ComputePipeline>(pipeline));
+}
+
+/-- Begin a compute pass. -/
+alloy c extern
+def CommandEncoder.beginComputePass (encoder : CommandEncoder) : IO ComputePassEncoder := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+
+  WGPUComputePassDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Compute pass";
+  desc.timestampWrites = NULL;
+
+  WGPUComputePassEncoder *pass = calloc(1, sizeof(WGPUComputePassEncoder));
+  *pass = wgpuCommandEncoderBeginComputePass(*c_encoder, &desc);
+  return lean_io_result_mk_ok(to_lean<ComputePassEncoder>(pass));
+}
+
+alloy c extern
+def ComputePassEncoder.setPipeline (pass : ComputePassEncoder) (pipeline : ComputePipeline) : IO Unit := {
+  WGPUComputePassEncoder *c_pass = of_lean<ComputePassEncoder>(pass);
+  WGPUComputePipeline *c_pipeline = of_lean<ComputePipeline>(pipeline);
+  wgpuComputePassEncoderSetPipeline(*c_pass, *c_pipeline);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def ComputePassEncoder.setBindGroup (pass : ComputePassEncoder) (groupIndex : UInt32) (bg : BindGroup) : IO Unit := {
+  WGPUComputePassEncoder *c_pass = of_lean<ComputePassEncoder>(pass);
+  WGPUBindGroup *c_bg = of_lean<BindGroup>(bg);
+  wgpuComputePassEncoderSetBindGroup(*c_pass, groupIndex, *c_bg, 0, NULL);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def ComputePassEncoder.dispatchWorkgroups (pass : ComputePassEncoder) (x : UInt32) (y : UInt32 := 1) (z : UInt32 := 1) : IO Unit := {
+  WGPUComputePassEncoder *c_pass = of_lean<ComputePassEncoder>(pass);
+  wgpuComputePassEncoderDispatchWorkgroups(*c_pass, x, y, z);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c extern
+def ComputePassEncoder.end_ (pass : ComputePassEncoder) : IO Unit := {
+  WGPUComputePassEncoder *c_pass = of_lean<ComputePassEncoder>(pass);
+  wgpuComputePassEncoderEnd(*c_pass);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- # Storage Buffer Bind Group Layouts -/
+
+/-- Create a bind group layout for a single storage buffer binding. -/
+alloy c extern
+def BindGroupLayout.mkStorage (device : Device) (binding : UInt32) (visibility : UInt32)
+    (readOnly : Bool := false) (minBindingSize : UInt64 := 0) : IO BindGroupLayout := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUBindGroupLayoutEntry *entry = calloc(1, sizeof(WGPUBindGroupLayoutEntry));
+  entry->binding = binding;
+  entry->visibility = visibility;
+  entry->buffer.type = readOnly ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage;
+  entry->buffer.hasDynamicOffset = false;
+  entry->buffer.minBindingSize = minBindingSize;
+  entry->sampler.type = WGPUSamplerBindingType_Undefined;
+  entry->texture.sampleType = WGPUTextureSampleType_Undefined;
+  entry->storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  WGPUBindGroupLayoutDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Storage bind group layout";
+  desc.entryCount = 1;
+  desc.entries = entry;
+
+  WGPUBindGroupLayout *layout = calloc(1, sizeof(WGPUBindGroupLayout));
+  *layout = wgpuDeviceCreateBindGroupLayout(c_device, &desc);
+  free(entry);
+  return lean_io_result_mk_ok(to_lean<BindGroupLayout>(layout));
+}
+
+/-- Create a bind group layout with two storage buffer bindings (e.g., input + output). -/
+alloy c extern
+def BindGroupLayout.mk2Storage (device : Device)
+    (binding0 : UInt32) (visibility0 : UInt32) (readOnly0 : Bool)
+    (binding1 : UInt32) (visibility1 : UInt32) (readOnly1 : Bool)
+    : IO BindGroupLayout := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUBindGroupLayoutEntry *entries = calloc(2, sizeof(WGPUBindGroupLayoutEntry));
+
+  entries[0].binding = binding0;
+  entries[0].visibility = visibility0;
+  entries[0].buffer.type = readOnly0 ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage;
+  entries[0].buffer.hasDynamicOffset = false;
+  entries[0].buffer.minBindingSize = 0;
+  entries[0].sampler.type = WGPUSamplerBindingType_Undefined;
+  entries[0].texture.sampleType = WGPUTextureSampleType_Undefined;
+  entries[0].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  entries[1].binding = binding1;
+  entries[1].visibility = visibility1;
+  entries[1].buffer.type = readOnly1 ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage;
+  entries[1].buffer.hasDynamicOffset = false;
+  entries[1].buffer.minBindingSize = 0;
+  entries[1].sampler.type = WGPUSamplerBindingType_Undefined;
+  entries[1].texture.sampleType = WGPUTextureSampleType_Undefined;
+  entries[1].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  WGPUBindGroupLayoutDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "2-Storage bind group layout";
+  desc.entryCount = 2;
+  desc.entries = entries;
+
+  WGPUBindGroupLayout *layout = calloc(1, sizeof(WGPUBindGroupLayout));
+  *layout = wgpuDeviceCreateBindGroupLayout(c_device, &desc);
+  free(entries);
+  return lean_io_result_mk_ok(to_lean<BindGroupLayout>(layout));
+}
+
+/-- Create a bind group with two buffer bindings. -/
+alloy c extern
+def BindGroup.mk2Buffers (device : Device) (layout : BindGroupLayout)
+    (binding0 : UInt32) (buffer0 : Buffer)
+    (binding1 : UInt32) (buffer1 : Buffer)
+    : IO BindGroup := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+  WGPUBindGroupLayout *c_layout = of_lean<BindGroupLayout>(layout);
+  WGPUBuffer *c_buf0 = of_lean<Buffer>(buffer0);
+  WGPUBuffer *c_buf1 = of_lean<Buffer>(buffer1);
+
+  WGPUBindGroupEntry *entries = calloc(2, sizeof(WGPUBindGroupEntry));
+
+  entries[0].binding = binding0;
+  entries[0].buffer = *c_buf0;
+  entries[0].offset = 0;
+  entries[0].size = wgpuBufferGetSize(*c_buf0);
+  entries[0].sampler = NULL;
+  entries[0].textureView = NULL;
+
+  entries[1].binding = binding1;
+  entries[1].buffer = *c_buf1;
+  entries[1].offset = 0;
+  entries[1].size = wgpuBufferGetSize(*c_buf1);
+  entries[1].sampler = NULL;
+  entries[1].textureView = NULL;
+
+  WGPUBindGroupDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "2-Buffer bind group";
+  desc.layout = *c_layout;
+  desc.entryCount = 2;
+  desc.entries = entries;
+
+  WGPUBindGroup *bg = calloc(1, sizeof(WGPUBindGroup));
+  *bg = wgpuDeviceCreateBindGroup(c_device, &desc);
+  free(entries);
+  return lean_io_result_mk_ok(to_lean<BindGroup>(bg));
+}
+
+/- # Buffer Copy & Mapping -/
+
+/-- Copy data between buffers. -/
+alloy c extern
+def CommandEncoder.copyBufferToBuffer (encoder : CommandEncoder)
+    (src : Buffer) (srcOffset : UInt64)
+    (dst : Buffer) (dstOffset : UInt64) (size : UInt64) : IO Unit := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+  WGPUBuffer *c_src = of_lean<Buffer>(src);
+  WGPUBuffer *c_dst = of_lean<Buffer>(dst);
+  wgpuCommandEncoderCopyBufferToBuffer(*c_encoder, *c_src, srcOffset, *c_dst, dstOffset, size);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+alloy c section
+  void onBufferMappedCallback(WGPUBufferMapAsyncStatus status, void *userdata) {
+    wgpu_callback_data *data = (wgpu_callback_data*)userdata;
+    if (status == WGPUBufferMapAsyncStatus_Success) {
+      data->result = lean_io_result_mk_ok(lean_box(0));
+    } else {
+      fprintf(stderr, "Buffer map failed with status: %d\n", status);
+      data->result = lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("Buffer mapping failed")));
+    }
+  }
+end
+
+/-- Map a buffer for reading. Blocks until mapping is complete by polling the device. -/
+alloy c extern
+def Buffer.mapRead (buffer : Buffer) (device : Device) (offset : UInt64 := 0) (size : UInt64 := 0) : IO Unit := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  WGPUDevice *c_device = of_lean<Device>(device);
+  uint64_t mapSize = size;
+  if (mapSize == 0) {
+    mapSize = wgpuBufferGetSize(*c_buffer) - offset;
+  }
+  wgpu_callback_data cb_data = {0};
+  wgpuBufferMapAsync(*c_buffer, WGPUMapMode_Read, offset, mapSize, onBufferMappedCallback, &cb_data);
+  -- Poll the device until the callback fires
+  while (cb_data.result == NULL) {
+    wgpuDevicePoll(*c_device, true, NULL);
+  }
+  return cb_data.result;
+}
+
+/-- Get the mapped range of a buffer as a ByteArray (read-only copy). -/
+alloy c extern
+def Buffer.getMappedRange (buffer : Buffer) (offset : UInt64 := 0) (size : UInt64 := 0) : IO ByteArray := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  uint64_t mapSize = size;
+  if (mapSize == 0) {
+    mapSize = wgpuBufferGetSize(*c_buffer) - offset;
+  }
+  const void *ptr = wgpuBufferGetConstMappedRange(*c_buffer, offset, mapSize);
+  if (ptr == NULL) {
+    return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("getMappedRange returned NULL")));
+  }
+  lean_object *ba = lean_alloc_sarray(1, mapSize, mapSize);
+  memcpy(lean_sarray_cptr(ba), ptr, mapSize);
+  return lean_io_result_mk_ok(ba);
+}
+
+/-- Unmap a previously mapped buffer. -/
+alloy c extern
+def Buffer.unmap (buffer : Buffer) : IO Unit := {
+  WGPUBuffer *c_buffer = of_lean<Buffer>(buffer);
+  wgpuBufferUnmap(*c_buffer);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Poll the device and wait until all pending work is complete. -/
+alloy c extern
+def Device.pollWait (device : Device) : IO Unit := {
+  wgpuDevicePoll(*of_lean<Device>(device), true, NULL);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/- # Primitive Topology & Cull Mode -/
+
+alloy c enum PrimitiveTopology => WGPUPrimitiveTopology
+| PointList => WGPUPrimitiveTopology_PointList
+| LineList => WGPUPrimitiveTopology_LineList
+| LineStrip => WGPUPrimitiveTopology_LineStrip
+| TriangleList => WGPUPrimitiveTopology_TriangleList
+| TriangleStrip => WGPUPrimitiveTopology_TriangleStrip
+| Force32 => WGPUPrimitiveTopology_Force32
+deriving Inhabited, Repr, BEq
+
+alloy c enum CullMode => WGPUCullMode
+| None => WGPUCullMode_None
+| Front => WGPUCullMode_Front
+| Back => WGPUCullMode_Back
+| Force32 => WGPUCullMode_Force32
+deriving Inhabited, Repr, BEq
+
+alloy c enum FrontFace => WGPUFrontFace
+| CCW => WGPUFrontFace_CCW
+| CW => WGPUFrontFace_CW
+| Force32 => WGPUFrontFace_Force32
+deriving Inhabited, Repr, BEq
+
+alloy c enum CompareFunction => WGPUCompareFunction
+| Undefined => WGPUCompareFunction_Undefined
+| Never => WGPUCompareFunction_Never
+| Less => WGPUCompareFunction_Less
+| LessEqual => WGPUCompareFunction_LessEqual
+| Greater => WGPUCompareFunction_Greater
+| GreaterEqual => WGPUCompareFunction_GreaterEqual
+| Equal => WGPUCompareFunction_Equal
+| NotEqual => WGPUCompareFunction_NotEqual
+| Always => WGPUCompareFunction_Always
+| Force32 => WGPUCompareFunction_Force32
+deriving Inhabited, Repr, BEq
+
+/- # Depth / Stencil Support -/
+
+/-- Create a depth texture for use as a depth attachment. -/
+alloy c extern
+def Device.createDepthTexture (device : Device) (width height : UInt32)
+    (format : TextureFormat := TextureFormat.Depth24Plus)
+    : IO Texture := {
+  WGPUDevice c_device = *of_lean<Device>(device);
+
+  WGPUTextureDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Depth texture";
+  desc.usage = WGPUTextureUsage_RenderAttachment;
+  desc.dimension = WGPUTextureDimension_2D;
+  desc.size.width = width;
+  desc.size.height = height;
+  desc.size.depthOrArrayLayers = 1;
+  desc.format = of_lean<TextureFormat>(format);
+  desc.mipLevelCount = 1;
+  desc.sampleCount = 1;
+  desc.viewFormatCount = 0;
+  desc.viewFormats = NULL;
+
+  WGPUTexture *tex = calloc(1, sizeof(WGPUTexture));
+  *tex = wgpuDeviceCreateTexture(c_device, &desc);
+  return lean_io_result_mk_ok(to_lean<Texture>(tex));
+}
+
+/-- Create a depth TextureView. -/
+alloy c extern
+def Texture.createDepthView (texture : Texture) (format : TextureFormat := TextureFormat.Depth24Plus) : IO TextureView := {
+  WGPUTexture *c_tex = of_lean<Texture>(texture);
+
+  WGPUTextureViewDescriptor desc = {};
+  desc.nextInChain = NULL;
+  desc.label = "Depth texture view";
+  desc.format = of_lean<TextureFormat>(format);
+  desc.dimension = WGPUTextureViewDimension_2D;
+  desc.baseMipLevel = 0;
+  desc.mipLevelCount = 1;
+  desc.baseArrayLayer = 0;
+  desc.arrayLayerCount = 1;
+  desc.aspect = WGPUTextureAspect_DepthOnly;
+
+  WGPUTextureView *view = calloc(1, sizeof(WGPUTextureView));
+  *view = wgpuTextureCreateView(*c_tex, &desc);
+  return lean_io_result_mk_ok(to_lean<TextureView>(view));
+}
+
+/-- Begin a render pass with both color and depth attachments. -/
+alloy c extern
+def RenderPassEncoder.mkWithDepth (encoder : CommandEncoder)
+    (colorView : TextureView) (color : Color)
+    (depthView : TextureView)
+    : IO RenderPassEncoder := {
+  WGPUCommandEncoder *c_encoder = of_lean<CommandEncoder>(encoder);
+
+  WGPURenderPassColorAttachment *colorAttachment = calloc(1, sizeof(WGPURenderPassColorAttachment));
+  WGPUTextureView *c_colorView = of_lean<TextureView>(colorView);
+  colorAttachment->view = *c_colorView;
+  colorAttachment->resolveTarget = NULL;
+  colorAttachment->loadOp = WGPULoadOp_Clear;
+  colorAttachment->storeOp = WGPUStoreOp_Store;
+  WGPUColor *c_color = of_lean<Color>(color);
+  colorAttachment->clearValue = *c_color;
+
+  WGPURenderPassDepthStencilAttachment *depthAttachment = calloc(1, sizeof(WGPURenderPassDepthStencilAttachment));
+  WGPUTextureView *c_depthView = of_lean<TextureView>(depthView);
+  depthAttachment->view = *c_depthView;
+  depthAttachment->depthLoadOp = WGPULoadOp_Clear;
+  depthAttachment->depthStoreOp = WGPUStoreOp_Store;
+  depthAttachment->depthClearValue = 1.0f;
+  depthAttachment->depthReadOnly = false;
+  depthAttachment->stencilLoadOp = WGPULoadOp_Undefined;
+  depthAttachment->stencilStoreOp = WGPUStoreOp_Undefined;
+  depthAttachment->stencilClearValue = 0;
+  depthAttachment->stencilReadOnly = true;
+
+  WGPURenderPassDescriptor *renderPassDesc = calloc(1, sizeof(WGPURenderPassDescriptor));
+  renderPassDesc->nextInChain = NULL;
+  renderPassDesc->colorAttachmentCount = 1;
+  renderPassDesc->colorAttachments = colorAttachment;
+  renderPassDesc->depthStencilAttachment = depthAttachment;
+  renderPassDesc->timestampWrites = NULL;
+
+  WGPURenderPassEncoder *renderPass = calloc(1, sizeof(WGPURenderPassEncoder));
+  *renderPass = wgpuCommandEncoderBeginRenderPass(*c_encoder, renderPassDesc);
+  return lean_io_result_mk_ok(to_lean<RenderPassEncoder>(renderPass));
+}
+
+/-- Set the stencil reference value. -/
+alloy c extern
+def RenderPassEncoder.setStencilReference (r : RenderPassEncoder) (reference : UInt32) : IO Unit := {
+  WGPURenderPassEncoder *renderPass = of_lean<RenderPassEncoder>(r);
+  wgpuRenderPassEncoderSetStencilReference(*renderPass, reference);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+
+/-- Create a render pipeline descriptor with vertex buffers, depth test, and configurable primitive state. -/
+alloy c extern
+def RenderPipelineDescriptor.mkFull
+    (shaderModule : ShaderModule)
+    (fState : FragmentState)
+    (vertexEntryPoint : String := "vs_main")
+    (strides : @& Array UInt64)
+    (stepModes : @& Array UInt32)
+    (attrFormats : @& Array UInt32)
+    (attrOffsets : @& Array UInt64)
+    (attrShaderLocations : @& Array UInt32)
+    (attrBufferIndices : @& Array UInt32)
+    (bufferCount : UInt32)
+    (topology : PrimitiveTopology := PrimitiveTopology.TriangleList)
+    (cullMode : CullMode := CullMode.None)
+    (frontFace : FrontFace := FrontFace.CCW)
+    (enableDepth : Bool := false)
+    (depthFormat : TextureFormat := TextureFormat.Depth24Plus)
+    (depthCompare : CompareFunction := CompareFunction.Less)
+    (depthWriteEnabled : Bool := true)
+    : IO RenderPipelineDescriptor := {
+  WGPUShaderModule *c_shaderModule = of_lean<ShaderModule>(shaderModule);
+  WGPUFragmentState *fragmentState = of_lean<FragmentState>(fState);
+
+  uint32_t nBuffers = bufferCount;
+  size_t nAttrs = lean_array_size(attrFormats);
+
+  WGPUVertexBufferLayout *bufferLayouts = calloc(nBuffers, sizeof(WGPUVertexBufferLayout));
+  for (uint32_t i = 0; i < nBuffers; i++) {
+    bufferLayouts[i].arrayStride = lean_unbox_uint64(lean_array_uget(strides, i));
+    bufferLayouts[i].stepMode = (WGPUVertexStepMode)lean_unbox(lean_array_uget(stepModes, i));
+    bufferLayouts[i].attributeCount = 0;
+    bufferLayouts[i].attributes = NULL;
+  }
+  for (size_t i = 0; i < nAttrs; i++) {
+    uint32_t bufIdx = lean_unbox(lean_array_uget(attrBufferIndices, i));
+    bufferLayouts[bufIdx].attributeCount++;
+  }
+  WGPUVertexAttribute **attrArrays = calloc(nBuffers, sizeof(WGPUVertexAttribute*));
+  uint32_t *attrCounters = calloc(nBuffers, sizeof(uint32_t));
+  for (uint32_t i = 0; i < nBuffers; i++) {
+    attrArrays[i] = calloc(bufferLayouts[i].attributeCount, sizeof(WGPUVertexAttribute));
+    bufferLayouts[i].attributes = attrArrays[i];
+  }
+  for (size_t i = 0; i < nAttrs; i++) {
+    uint32_t bufIdx = lean_unbox(lean_array_uget(attrBufferIndices, i));
+    uint32_t ai = attrCounters[bufIdx]++;
+    attrArrays[bufIdx][ai].format = (WGPUVertexFormat)lean_unbox(lean_array_uget(attrFormats, i));
+    attrArrays[bufIdx][ai].offset = lean_unbox_uint64(lean_array_uget(attrOffsets, i));
+    attrArrays[bufIdx][ai].shaderLocation = lean_unbox(lean_array_uget(attrShaderLocations, i));
+  }
+  free(attrCounters);
+  free(attrArrays);
+
+  WGPURenderPipelineDescriptor *pipelineDesc = calloc(1, sizeof(WGPURenderPipelineDescriptor));
+  pipelineDesc->nextInChain = NULL;
+  pipelineDesc->vertex.bufferCount = nBuffers;
+  pipelineDesc->vertex.buffers = bufferLayouts;
+  pipelineDesc->vertex.module = *c_shaderModule;
+  pipelineDesc->vertex.entryPoint = lean_string_cstr(vertexEntryPoint);
+  pipelineDesc->vertex.constantCount = 0;
+  pipelineDesc->vertex.constants = NULL;
+
+  pipelineDesc->primitive.topology = of_lean<PrimitiveTopology>(topology);
+  pipelineDesc->primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc->primitive.frontFace = of_lean<FrontFace>(frontFace);
+  pipelineDesc->primitive.cullMode = of_lean<CullMode>(cullMode);
+
+  if (enableDepth) {
+    WGPUDepthStencilState *depthState = calloc(1, sizeof(WGPUDepthStencilState));
+    depthState->nextInChain = NULL;
+    depthState->format = of_lean<TextureFormat>(depthFormat);
+    depthState->depthWriteEnabled = depthWriteEnabled;
+    depthState->depthCompare = of_lean<CompareFunction>(depthCompare);
+    depthState->stencilFront.compare = WGPUCompareFunction_Always;
+    depthState->stencilFront.failOp = WGPUStencilOperation_Keep;
+    depthState->stencilFront.depthFailOp = WGPUStencilOperation_Keep;
+    depthState->stencilFront.passOp = WGPUStencilOperation_Keep;
+    depthState->stencilBack = depthState->stencilFront;
+    depthState->stencilReadMask = 0xFFFFFFFF;
+    depthState->stencilWriteMask = 0xFFFFFFFF;
+    depthState->depthBias = 0;
+    depthState->depthBiasSlopeScale = 0.0f;
+    depthState->depthBiasClamp = 0.0f;
+    pipelineDesc->depthStencil = depthState;
+  } else {
+    pipelineDesc->depthStencil = NULL;
+  }
+
+  pipelineDesc->fragment = fragmentState;
+  pipelineDesc->multisample.count = 1;
+  pipelineDesc->multisample.mask = 0xFFFFFFFF;
+  pipelineDesc->multisample.alphaToCoverageEnabled = false;
+  pipelineDesc->layout = NULL;
+
+  return lean_io_result_mk_ok(to_lean<RenderPipelineDescriptor>(pipelineDesc));
+}
+
+/-- High-level helper: build a pipeline descriptor with depth, topology, and cull mode from Lean data. -/
+def RenderPipelineDescriptor.mkFullLayouts
+    (shaderModule : ShaderModule)
+    (fState : FragmentState)
+    (layouts : Array VertexBufferLayoutDesc)
+    (vertexEntryPoint : String := "vs_main")
+    (topology : PrimitiveTopology := PrimitiveTopology.TriangleList)
+    (cullMode : CullMode := CullMode.None)
+    (frontFace : FrontFace := FrontFace.CCW)
+    (enableDepth : Bool := false)
+    (depthFormat : TextureFormat := TextureFormat.Depth24Plus)
+    (depthCompare : CompareFunction := CompareFunction.Less)
+    (depthWriteEnabled : Bool := true)
+    : IO RenderPipelineDescriptor := do
+  let mut strides : Array UInt64 := #[]
+  let mut stepModes : Array UInt32 := #[]
+  let mut attrFormats : Array UInt32 := #[]
+  let mut attrOffsets : Array UInt64 := #[]
+  let mut attrShaderLocations : Array UInt32 := #[]
+  let mut attrBufferIndices : Array UInt32 := #[]
+  for h : i in [:layouts.size] do
+    let layout := layouts[i]
+    strides := strides.push layout.arrayStride
+    stepModes := stepModes.push (match layout.stepMode with
+      | .Vertex => 0 | .Instance => 1 | .VertexBufferNotUsed => 2 | .Force32 => 3)
+    for attr in layout.attributes do
+      attrFormats := attrFormats.push (match attr.format with
+        | .Undefined => 0 | .Uint8x2 => 1 | .Uint8x4 => 2 | .Sint8x2 => 3 | .Sint8x4 => 4
+        | .Unorm8x2 => 5 | .Unorm8x4 => 6 | .Snorm8x2 => 7 | .Snorm8x4 => 8
+        | .Uint16x2 => 9 | .Uint16x4 => 10 | .Sint16x2 => 11 | .Sint16x4 => 12
+        | .Unorm16x2 => 13 | .Unorm16x4 => 14 | .Snorm16x2 => 15 | .Snorm16x4 => 16
+        | .Float16x2 => 17 | .Float16x4 => 18
+        | .Float32 => 19 | .Float32x2 => 20 | .Float32x3 => 21 | .Float32x4 => 22
+        | .Uint32 => 23 | .Uint32x2 => 24 | .Uint32x3 => 25 | .Uint32x4 => 26
+        | .Sint32 => 27 | .Sint32x2 => 28 | .Sint32x3 => 29 | .Sint32x4 => 30
+        | .Force32 => 31)
+      attrOffsets := attrOffsets.push attr.offset
+      attrShaderLocations := attrShaderLocations.push attr.shaderLocation
+      attrBufferIndices := attrBufferIndices.push i.toUInt32
+  RenderPipelineDescriptor.mkFull shaderModule fState vertexEntryPoint
+    strides stepModes attrFormats attrOffsets attrShaderLocations attrBufferIndices
+    layouts.size.toUInt32 topology cullMode frontFace enableDepth depthFormat depthCompare depthWriteEnabled
+
+/- # Surface Reconfiguration Helper -/
+
+alloy c extern
+def SurfaceConfiguration.mkWith (width height : UInt32) (device : Device) (textureFormat : TextureFormat)
+    (presentMode : UInt32 := 2) -- 2 = Fifo
+    : IO SurfaceConfiguration := {
+  WGPUDevice *c_device = of_lean<Device>(device);
+  WGPUTextureFormat surfaceFormat = of_lean<TextureFormat>(textureFormat);
+
+  WGPUSurfaceConfiguration *config = calloc(1, sizeof(WGPUSurfaceConfiguration));
+  config->nextInChain = NULL;
+  config->width = width;
+  config->height = height;
+  config->usage = WGPUTextureUsage_RenderAttachment;
+  config->format = surfaceFormat;
+  config->viewFormatCount = 0;
+  config->viewFormats = NULL;
+  config->device = *c_device;
+  config->presentMode = (WGPUPresentMode)presentMode;
+  config->alphaMode = WGPUCompositeAlphaMode_Auto;
+
+  return lean_io_result_mk_ok(to_lean<SurfaceConfiguration>(config));
+}
+
+end Wgpu

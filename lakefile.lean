@@ -139,8 +139,80 @@ lean_exe helloworld where
         "./glfw3webgpu/glfw3webgpu.o",
         "-L/usr/lib/x86_64-linux-gnu", "-lglfw"
       ]
-  root := `Main
+  root := `Examples.Main
   extraDepTargets := #[`glfw3webgpu]
   nativeFacets := fun shouldExport =>
     if shouldExport then #[Module.oExportFacet, `module.alloy.c.o.export]
     else #[Module.oNoExportFacet, `module.alloy.c.o.noexport]
+
+def exeLinkArgs :=
+  if getOS == .macos
+    then #[
+      "./glfw3webgpu/glfw3webgpu.o",
+      s!"-L{glfw_library_path.get!}", "-lglfw",
+      "-framework", "Metal",
+      "-framework", "QuartzCore",
+      "-framework", "CoreFoundation"
+    ]
+    else #[
+      "./glfw3webgpu/glfw3webgpu.o",
+      "-L/usr/lib/x86_64-linux-gnu", "-lglfw"
+    ]
+
+def exeNativeFacets : Bool → Array (ModuleFacet FilePath) := fun shouldExport =>
+  if shouldExport then #[Module.oExportFacet, `module.alloy.c.o.export]
+  else #[Module.oNoExportFacet, `module.alloy.c.o.noexport]
+
+lean_exe deviceinfo where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.DeviceInfo
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe coloredtriangle where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.ColoredTriangle
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe uniformtriangle where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.UniformTriangle
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe indexedquad where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.IndexedQuad
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe texturedquad where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.TexturedQuad
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe computedouble where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.ComputeDouble
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe depthcube where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.DepthCube
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe instancing where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.Instancing
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
+
+lean_exe resizablewindow where
+  moreLinkArgs := exeLinkArgs
+  root := `Examples.ResizableWindow
+  extraDepTargets := #[`glfw3webgpu]
+  nativeFacets := exeNativeFacets
