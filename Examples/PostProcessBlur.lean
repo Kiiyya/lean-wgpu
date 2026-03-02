@@ -34,7 +34,7 @@ struct VertexOutput { @builtin(position) position: vec4f, @location(0) color: ve
     let off = vec2f(cos(f32(inst)*2.094)*0.4, sin(f32(inst)*2.094)*0.4);
     var out: VertexOutput;
     out.position = vec4f(rot + off, 0.0, 1.0);
-    let colors = array<vec3f,3>(vec3f(1.0,0.2,0.2),vec3f(0.2,1.0,0.2),vec3f(0.2,0.2,1.0));
+    var colors = array<vec3f,3>(vec3f(1.0,0.2,0.2),vec3f(0.2,1.0,0.2),vec3f(0.2,0.2,1.0));
     out.color = colors[inst];
     return out;
 }
@@ -53,7 +53,7 @@ struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f
     var out: VertexOutput; out.position = vec4f(pos[idx], 0.0, 1.0); out.uv = uv[idx]; return out;
 }
 @fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let w = array<f32,5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+    var w = array<f32,5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
     let step = blur.direction * blur.texel_size;
     var color = textureSample(input_tex, input_samp, in.uv) * w[0];
     for (var i = 1; i < 5; i++) {
