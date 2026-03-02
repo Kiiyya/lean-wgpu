@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -14,17 +15,18 @@ set_option linter.unusedVariables false
   Uses a GLFW window + surface just to get a device (same pattern as other examples).
 -/
 
-def computeShaderSource : String :=
-"@group(0) @binding(0) var<storage, read> input: array<u32>; \
-@group(0) @binding(1) var<storage, read_write> output: array<u32>; \
- \
-@compute @workgroup_size(64) \
-fn main(@builtin(global_invocation_id) id: vec3<u32>) { \
-    let index = id.x; \
-    if (index < arrayLength(&input)) { \
-        output[index] = input[index] * 2u; \
-    } \
-}"
+def computeShaderSource : String := !WGSL{
+@group(0) @binding(0) var<storage, read> input: array<u32>;
+@group(0) @binding(1) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let index = id.x;
+    if (index < arrayLength(&input)) {
+        output[index] = input[index] * 2u;
+    }
+}
+}
 
 def computeDouble : IO Unit := do
   eprintln "=== Compute Double (GPU Compute) ==="

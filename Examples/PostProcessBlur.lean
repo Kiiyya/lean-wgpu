@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -20,60 +21,63 @@ set_option linter.unusedVariables false
   Uses @group(0) for texture+sampler, @group(1) for blur uniforms.
 -/
 
-def sceneShaderSrc : String :=
-"struct Uniforms { time: f32 }; \
-@group(0) @binding(0) var<uniform> u: Uniforms; \
-struct VertexOutput { @builtin(position) position: vec4f, @location(0) color: vec3f }; \
-@vertex fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) inst: u32) -> VertexOutput { \
-    let angle = u.time * 2.0 + f32(inst) * 2.094; \
-    let ca = cos(angle); let sa = sin(angle); \
-    var base = array<vec2f,3>(vec2f(0.0,0.3),vec2f(-0.25,-0.15),vec2f(0.25,-0.15)); \
-    let p = base[idx]; \
-    let rot = vec2f(p.x*ca - p.y*sa, p.x*sa + p.y*ca); \
-    let off = vec2f(cos(f32(inst)*2.094)*0.4, sin(f32(inst)*2.094)*0.4); \
-    var out: VertexOutput; \
-    out.position = vec4f(rot + off, 0.0, 1.0); \
-    let colors = array<vec3f,3>(vec3f(1.0,0.2,0.2),vec3f(0.2,1.0,0.2),vec3f(0.2,0.2,1.0)); \
-    out.color = colors[inst]; \
-    return out; \
-} \
-@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f { return vec4f(in.color, 1.0); }"
+def sceneShaderSrc : String := !WGSL{
+struct Uniforms { time: f32 };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct VertexOutput { @builtin(position) position: vec4f, @location(0) color: vec3f };
+@vertex fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) inst: u32) -> VertexOutput {
+    let angle = u.time * 2.0 + f32(inst) * 2.094;
+    let ca = cos(angle); let sa = sin(angle);
+    var base = array<vec2f,3>(vec2f(0.0,0.3),vec2f(-0.25,-0.15),vec2f(0.25,-0.15));
+    let p = base[idx];
+    let rot = vec2f(p.x*ca - p.y*sa, p.x*sa + p.y*ca);
+    let off = vec2f(cos(f32(inst)*2.094)*0.4, sin(f32(inst)*2.094)*0.4);
+    var out: VertexOutput;
+    out.position = vec4f(rot + off, 0.0, 1.0);
+    let colors = array<vec3f,3>(vec3f(1.0,0.2,0.2),vec3f(0.2,1.0,0.2),vec3f(0.2,0.2,1.0));
+    out.color = colors[inst];
+    return out;
+}
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f { return vec4f(in.color, 1.0); }
+}
 
-def blurShaderSrc : String :=
-"@group(0) @binding(0) var input_tex: texture_2d<f32>; \
-@group(0) @binding(1) var input_samp: sampler; \
-struct BlurParams { direction: vec2f, texel_size: vec2f }; \
-@group(1) @binding(0) var<uniform> blur: BlurParams; \
-struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f }; \
-@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput { \
-    var pos = array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1)); \
-    var uv = array<vec2f,6>(vec2f(0,1),vec2f(1,1),vec2f(0,0),vec2f(0,0),vec2f(1,1),vec2f(1,0)); \
-    var out: VertexOutput; out.position = vec4f(pos[idx], 0.0, 1.0); out.uv = uv[idx]; return out; \
-} \
-@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    let w = array<f32,5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216); \
-    let step = blur.direction * blur.texel_size; \
-    var color = textureSample(input_tex, input_samp, in.uv) * w[0]; \
-    for (var i = 1; i < 5; i++) { \
-        let off = step * f32(i); \
-        color += textureSample(input_tex, input_samp, in.uv + off) * w[i]; \
-        color += textureSample(input_tex, input_samp, in.uv - off) * w[i]; \
-    } \
-    return color; \
-}"
+def blurShaderSrc : String := !WGSL{
+@group(0) @binding(0) var input_tex: texture_2d<f32>;
+@group(0) @binding(1) var input_samp: sampler;
+struct BlurParams { direction: vec2f, texel_size: vec2f };
+@group(1) @binding(0) var<uniform> blur: BlurParams;
+struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f };
+@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var pos = array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
+    var uv = array<vec2f,6>(vec2f(0,1),vec2f(1,1),vec2f(0,0),vec2f(0,0),vec2f(1,1),vec2f(1,0));
+    var out: VertexOutput; out.position = vec4f(pos[idx], 0.0, 1.0); out.uv = uv[idx]; return out;
+}
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let w = array<f32,5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+    let step = blur.direction * blur.texel_size;
+    var color = textureSample(input_tex, input_samp, in.uv) * w[0];
+    for (var i = 1; i < 5; i++) {
+        let off = step * f32(i);
+        color += textureSample(input_tex, input_samp, in.uv + off) * w[i];
+        color += textureSample(input_tex, input_samp, in.uv - off) * w[i];
+    }
+    return color;
+}
+}
 
-def blitShaderSrc : String :=
-"@group(0) @binding(0) var blit_tex: texture_2d<f32>; \
-@group(0) @binding(1) var blit_samp: sampler; \
-struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f }; \
-@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput { \
-    var pos = array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1)); \
-    var uv = array<vec2f,6>(vec2f(0,1),vec2f(1,1),vec2f(0,0),vec2f(0,0),vec2f(1,1),vec2f(1,0)); \
-    var out: VertexOutput; out.position = vec4f(pos[idx], 0.0, 1.0); out.uv = uv[idx]; return out; \
-} \
-@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    return textureSample(blit_tex, blit_samp, in.uv); \
-}"
+def blitShaderSrc : String := !WGSL{
+@group(0) @binding(0) var blit_tex: texture_2d<f32>;
+@group(0) @binding(1) var blit_samp: sampler;
+struct VertexOutput { @builtin(position) position: vec4f, @location(0) uv: vec2f };
+@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var pos = array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
+    var uv = array<vec2f,6>(vec2f(0,1),vec2f(1,1),vec2f(0,0),vec2f(0,0),vec2f(1,1),vec2f(1,0));
+    var out: VertexOutput; out.position = vec4f(pos[idx], 0.0, 1.0); out.uv = uv[idx]; return out;
+}
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return textureSample(blit_tex, blit_samp, in.uv);
+}
+}
 
 def postProcessBlur : IO Unit := do
   eprintln "=== PostProcessBlur (Multi-Pass Gaussian Blur) ==="

@@ -108,6 +108,8 @@ section wgpu_native
 end wgpu_native
 
 
+lean_lib Wgsl
+
 lean_lib Wgpu where
   moreLeancArgs := #[
     "-Wall",

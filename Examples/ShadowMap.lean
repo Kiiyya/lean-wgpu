@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -123,49 +124,51 @@ def sceneVertexData : Array Float := Id.run do
   d
 
 -- Shadow pass shader: just output depth from light MVP
-def shadowShaderSrc : String :=
-"struct LightUniforms { light_mvp: mat4x4<f32> }; \
-@group(0) @binding(0) var<uniform> light_u: LightUniforms; \
-struct VIn { @location(0) pos: vec3f, @location(1) normal: vec3f }; \
-@vertex fn vs_shadow(in: VIn) -> @builtin(position) vec4f { \
-    return light_u.light_mvp * vec4f(in.pos, 1.0); \
-}"
+def shadowShaderSrc : String := !WGSL{
+struct LightUniforms { light_mvp: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> light_u: LightUniforms;
+struct VIn { @location(0) pos: vec3f, @location(1) normal: vec3f };
+@vertex fn vs_shadow(in: VIn) -> @builtin(position) vec4f {
+    return light_u.light_mvp * vec4f(in.pos, 1.0);
+}
+}
 
 -- Scene pass shader: lit with shadow lookup
-def sceneShaderSrc : String :=
-"struct SceneUniforms { \
-    mvp: mat4x4<f32>, \
-    light_mvp: mat4x4<f32>, \
-    light_dir: vec3f, \
-    _pad: f32, \
-}; \
-@group(0) @binding(0) var<uniform> scene_u: SceneUniforms; \
-@group(1) @binding(0) var shadow_map: texture_depth_2d; \
-@group(1) @binding(1) var shadow_sampler: sampler_comparison; \
-struct VIn { @location(0) pos: vec3f, @location(1) normal: vec3f }; \
-struct VOut { @builtin(position) position: vec4f, @location(0) normal: vec3f, @location(1) shadow_pos: vec3f }; \
-@vertex fn vs_main(in: VIn) -> VOut { \
-    var out: VOut; \
-    out.position = scene_u.mvp * vec4f(in.pos, 1.0); \
-    out.normal = in.normal; \
-    let light_clip = scene_u.light_mvp * vec4f(in.pos, 1.0); \
-    let light_ndc = light_clip.xyz / light_clip.w; \
-    out.shadow_pos = vec3f(light_ndc.x * 0.5 + 0.5, 1.0 - (light_ndc.y * 0.5 + 0.5), light_ndc.z); \
-    return out; \
-} \
-@fragment fn fs_main(in: VOut) -> @location(0) vec4f { \
-    let n = normalize(in.normal); \
-    let ndotl = max(dot(n, -scene_u.light_dir), 0.0); \
-    let shadow = textureSampleCompare(shadow_map, shadow_sampler, in.shadow_pos.xy, in.shadow_pos.z - 0.005); \
-    let ambient = 0.15; \
-    let diffuse = ndotl * shadow; \
-    let brightness = ambient + diffuse * 0.85; \
-    let ground_color = vec3f(0.6, 0.7, 0.5); \
-    let pillar_color = vec3f(0.8, 0.5, 0.3); \
-    var color = ground_color; \
-    if (abs(n.y) < 0.5) { color = pillar_color; } \
-    return vec4f(color * brightness, 1.0); \
-}"
+def sceneShaderSrc : String := !WGSL{
+struct SceneUniforms {
+    mvp: mat4x4<f32>,
+    light_mvp: mat4x4<f32>,
+    light_dir: vec3f,
+    _pad: f32,
+};
+@group(0) @binding(0) var<uniform> scene_u: SceneUniforms;
+@group(1) @binding(0) var shadow_map: texture_depth_2d;
+@group(1) @binding(1) var shadow_sampler: sampler_comparison;
+struct VIn { @location(0) pos: vec3f, @location(1) normal: vec3f };
+struct VOut { @builtin(position) position: vec4f, @location(0) normal: vec3f, @location(1) shadow_pos: vec3f };
+@vertex fn vs_main(in: VIn) -> VOut {
+    var out: VOut;
+    out.position = scene_u.mvp * vec4f(in.pos, 1.0);
+    out.normal = in.normal;
+    let light_clip = scene_u.light_mvp * vec4f(in.pos, 1.0);
+    let light_ndc = light_clip.xyz / light_clip.w;
+    out.shadow_pos = vec3f(light_ndc.x * 0.5 + 0.5, 1.0 - (light_ndc.y * 0.5 + 0.5), light_ndc.z);
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4f {
+    let n = normalize(in.normal);
+    let ndotl = max(dot(n, -scene_u.light_dir), 0.0);
+    let shadow = textureSampleCompare(shadow_map, shadow_sampler, in.shadow_pos.xy, in.shadow_pos.z - 0.005);
+    let ambient = 0.15;
+    let diffuse = ndotl * shadow;
+    let brightness = ambient + diffuse * 0.85;
+    let ground_color = vec3f(0.6, 0.7, 0.5);
+    let pillar_color = vec3f(0.8, 0.5, 0.3);
+    var color = ground_color;
+    if (abs(n.y) < 0.5) { color = pillar_color; }
+    return vec4f(color * brightness, 1.0);
+}
+}
 
 def shadowMap : IO Unit := do
   eprintln "=== ShadowMap (directional light shadow mapping) ==="

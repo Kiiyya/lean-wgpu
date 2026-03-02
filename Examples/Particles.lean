@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -14,95 +15,97 @@ set_option linter.unusedVariables false
   no CPU readback of particle state.
 -/
 
-def particleComputeSource : String :=
-"struct Particle { \
-    pos: vec2f, \
-    vel: vec2f, \
-    color: vec4f, \
-    life: f32, \
-    _pad: f32, \
-    _pad2: vec2f, \
-}; \
- \
-struct SimParams { \
-    deltaTime: f32, \
-    time: f32, \
-    gravity: f32, \
-    wind: f32, \
-}; \
- \
-@group(0) @binding(0) var<storage, read_write> particles: array<Particle>; \
-@group(1) @binding(0) var<uniform> params: SimParams; \
- \
-@compute @workgroup_size(64) \
-fn main(@builtin(global_invocation_id) id: vec3<u32>) { \
-    let idx = id.x; \
-    if (idx >= arrayLength(&particles)) { return; } \
-    var p = particles[idx]; \
-    p.vel.y += params.gravity * params.deltaTime; \
-    p.vel.x += params.wind * sin(params.time + f32(idx) * 0.1) * params.deltaTime; \
-    p.pos += p.vel * params.deltaTime; \
-    p.life -= params.deltaTime * 0.2; \
-    if (p.pos.y > 1.0) { p.pos.y = 1.0; p.vel.y = -abs(p.vel.y) * 0.6; } \
-    if (p.pos.y < -1.0) { p.pos.y = -1.0; p.vel.y = abs(p.vel.y) * 0.6; } \
-    if (p.pos.x > 1.0) { p.pos.x = 1.0; p.vel.x = -abs(p.vel.x) * 0.6; } \
-    if (p.pos.x < -1.0) { p.pos.x = -1.0; p.vel.x = abs(p.vel.x) * 0.6; } \
-    if (p.life <= 0.0) { \
-        let seed = f32(idx) * 1.618 + params.time; \
-        p.pos = vec2f(sin(seed * 3.7) * 0.1, -0.8 + sin(seed * 2.3) * 0.1); \
-        p.vel = vec2f(sin(seed * 5.1) * 0.5, -(0.5 + fract(seed * 1.3) * 1.5)); \
-        p.life = 0.5 + fract(seed * 0.7) * 1.5; \
-        p.color = vec4f( \
-            0.5 + fract(seed * 1.1) * 0.5, \
-            0.3 + fract(seed * 2.3) * 0.4, \
-            0.2 + fract(seed * 3.7) * 0.3, \
-            1.0 \
-        ); \
-    } \
-    particles[idx] = p; \
-}"
+def particleComputeSource : String := !WGSL{
+struct Particle {
+    pos: vec2f,
+    vel: vec2f,
+    color: vec4f,
+    life: f32,
+    _pad: f32,
+    _pad2: vec2f,
+};
 
-def particleRenderSource : String :=
-"struct Particle { \
-    pos: vec2f, \
-    vel: vec2f, \
-    color: vec4f, \
-    life: f32, \
-    _pad: f32, \
-    _pad2: vec2f, \
-}; \
- \
-@group(0) @binding(0) var<storage, read> particles: array<Particle>; \
- \
-struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) color: vec4f, \
-    @location(1) localUV: vec2f, \
-}; \
- \
-@vertex \
-fn vs_main(@builtin(vertex_index) vIdx: u32, @builtin(instance_index) iIdx: u32) -> VertexOutput { \
-    let p = particles[iIdx]; \
-    var quad = array<vec2f, 6>( \
-        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0), \
-        vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0)  \
-    ); \
-    let size = 0.008 * (0.5 + p.life * 0.5); \
-    let worldPos = p.pos + quad[vIdx] * size; \
-    var out: VertexOutput; \
-    out.position = vec4f(worldPos, 0.0, 1.0); \
-    out.color = vec4f(p.color.rgb * p.life, p.life); \
-    out.localUV = quad[vIdx]; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    let dist = length(in.localUV); \
-    if (dist > 1.0) { discard; } \
-    let alpha = (1.0 - dist) * in.color.a; \
-    return vec4f(in.color.rgb, alpha); \
-}"
+struct SimParams {
+    deltaTime: f32,
+    time: f32,
+    gravity: f32,
+    wind: f32,
+};
+
+@group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
+@group(1) @binding(0) var<uniform> params: SimParams;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if (idx >= arrayLength(&particles)) { return; }
+    var p = particles[idx];
+    p.vel.y += params.gravity * params.deltaTime;
+    p.vel.x += params.wind * sin(params.time + f32(idx) * 0.1) * params.deltaTime;
+    p.pos += p.vel * params.deltaTime;
+    p.life -= params.deltaTime * 0.2;
+    if (p.pos.y > 1.0) { p.pos.y = 1.0; p.vel.y = -abs(p.vel.y) * 0.6; }
+    if (p.pos.y < -1.0) { p.pos.y = -1.0; p.vel.y = abs(p.vel.y) * 0.6; }
+    if (p.pos.x > 1.0) { p.pos.x = 1.0; p.vel.x = -abs(p.vel.x) * 0.6; }
+    if (p.pos.x < -1.0) { p.pos.x = -1.0; p.vel.x = abs(p.vel.x) * 0.6; }
+    if (p.life <= 0.0) {
+        let seed = f32(idx) * 1.618 + params.time;
+        p.pos = vec2f(sin(seed * 3.7) * 0.1, -0.8 + sin(seed * 2.3) * 0.1);
+        p.vel = vec2f(sin(seed * 5.1) * 0.5, -(0.5 + fract(seed * 1.3) * 1.5));
+        p.life = 0.5 + fract(seed * 0.7) * 1.5;
+        p.color = vec4f(
+            0.5 + fract(seed * 1.1) * 0.5,
+            0.3 + fract(seed * 2.3) * 0.4,
+            0.2 + fract(seed * 3.7) * 0.3,
+            1.0
+        );
+    }
+    particles[idx] = p;
+}
+}
+
+def particleRenderSource : String := !WGSL{
+struct Particle {
+    pos: vec2f,
+    vel: vec2f,
+    color: vec4f,
+    life: f32,
+    _pad: f32,
+    _pad2: vec2f,
+};
+
+@group(0) @binding(0) var<storage, read> particles: array<Particle>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec4f,
+    @location(1) localUV: vec2f,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vIdx: u32, @builtin(instance_index) iIdx: u32) -> VertexOutput {
+    let p = particles[iIdx];
+    var quad = array<vec2f, 6>(
+        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+        vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0) 
+    );
+    let size = 0.008 * (0.5 + p.life * 0.5);
+    let worldPos = p.pos + quad[vIdx] * size;
+    var out: VertexOutput;
+    out.position = vec4f(worldPos, 0.0, 1.0);
+    out.color = vec4f(p.color.rgb * p.life, p.life);
+    out.localUV = quad[vIdx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let dist = length(in.localUV);
+    if (dist > 1.0) { discard; }
+    let alpha = (1.0 - dist) * in.color.a;
+    return vec4f(in.color.rgb, alpha);
+}
+}
 
 def numParticles : Nat := 4096
 

@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -19,27 +20,29 @@ set_option linter.unusedVariables false
   Press ESC/Q to quit.
 -/
 
-def solidShader : String :=
-"struct Uniforms { mvp: mat4x4<f32> }; \
-@group(0) @binding(0) var<uniform> u: Uniforms; \
-struct VIn { @location(0) pos: vec3f, @location(1) color: vec3f }; \
-struct VOut { @builtin(position) position: vec4f, @location(0) color: vec3f }; \
-@vertex fn vs_main(in: VIn) -> VOut { \
-    var out: VOut; out.position = u.mvp * vec4f(in.pos, 1.0); out.color = in.color; return out; \
-} \
-@fragment fn fs_main(in: VOut) -> @location(0) vec4f { return vec4f(in.color, 1.0); }"
+def solidShader : String := !WGSL{
+struct Uniforms { mvp: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct VIn { @location(0) pos: vec3f, @location(1) color: vec3f };
+struct VOut { @builtin(position) position: vec4f, @location(0) color: vec3f };
+@vertex fn vs_main(in: VIn) -> VOut {
+    var out: VOut; out.position = u.mvp * vec4f(in.pos, 1.0); out.color = in.color; return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4f { return vec4f(in.color, 1.0); }
+}
 
-def wireShader : String :=
-"struct Uniforms { mvp: mat4x4<f32> }; \
-@group(0) @binding(0) var<uniform> u: Uniforms; \
-struct VIn { @location(0) pos: vec3f }; \
-struct VOut { @builtin(position) position: vec4f }; \
-@vertex fn vs_main(in: VIn) -> VOut { \
-    var out: VOut; out.position = u.mvp * vec4f(in.pos, 1.0); \
-    out.position.z = out.position.z - 0.0005; \
-    return out; \
-} \
-@fragment fn fs_main() -> @location(0) vec4f { return vec4f(1.0, 1.0, 1.0, 1.0); }"
+def wireShader : String := !WGSL{
+struct Uniforms { mvp: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct VIn { @location(0) pos: vec3f };
+struct VOut { @builtin(position) position: vec4f };
+@vertex fn vs_main(in: VIn) -> VOut {
+    var out: VOut; out.position = u.mvp * vec4f(in.pos, 1.0);
+    out.position.z = out.position.z - 0.0005;
+    return out;
+}
+@fragment fn fs_main() -> @location(0) vec4f { return vec4f(1.0, 1.0, 1.0, 1.0); }
+}
 
 -- Simple math helpers
 def mat4Identity : Array Float :=

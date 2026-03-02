@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -15,73 +16,75 @@ set_option linter.unusedVariables false
   compute→render pipeline interop.
 -/
 
-def golComputeSource : String :=
-"@group(0) @binding(0) var<storage, read> cellsIn: array<u32>; \
-@group(0) @binding(1) var<storage, read_write> cellsOut: array<u32>; \
- \
-const GRID_W: u32 = 128u; \
-const GRID_H: u32 = 128u; \
- \
-fn getCell(x: i32, y: i32) -> u32 { \
-    let wx = ((x % i32(GRID_W)) + i32(GRID_W)) % i32(GRID_W); \
-    let wy = ((y % i32(GRID_H)) + i32(GRID_H)) % i32(GRID_H); \
-    return cellsIn[u32(wy) * GRID_W + u32(wx)]; \
-} \
- \
-@compute @workgroup_size(8, 8) \
-fn main(@builtin(global_invocation_id) id: vec3<u32>) { \
-    if (id.x >= GRID_W || id.y >= GRID_H) { return; } \
-    let x = i32(id.x); \
-    let y = i32(id.y); \
-    let neighbors = getCell(x-1,y-1) + getCell(x,y-1) + getCell(x+1,y-1) \
-                  + getCell(x-1,y)                     + getCell(x+1,y) \
-                  + getCell(x-1,y+1) + getCell(x,y+1) + getCell(x+1,y+1); \
-    let alive = cellsIn[id.y * GRID_W + id.x]; \
-    var next: u32 = 0u; \
-    if (alive == 1u && (neighbors == 2u || neighbors == 3u)) { next = 1u; } \
-    if (alive == 0u && neighbors == 3u) { next = 1u; } \
-    cellsOut[id.y * GRID_W + id.x] = next; \
-}"
+def golComputeSource : String := !WGSL{
+@group(0) @binding(0) var<storage, read> cellsIn: array<u32>;
+@group(0) @binding(1) var<storage, read_write> cellsOut: array<u32>;
 
-def golRenderSource : String :=
-"@group(0) @binding(0) var<storage, read> cells: array<u32>; \
- \
-const GRID_W: u32 = 128u; \
-const GRID_H: u32 = 128u; \
- \
-struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) uv: vec2f, \
-}; \
- \
-@vertex \
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput { \
-    var pos = array<vec2f, 6>( \
-        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0), \
-        vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0)  \
-    ); \
-    var uv = array<vec2f, 6>( \
-        vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0), \
-        vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(0.0, 0.0)  \
-    ); \
-    var out: VertexOutput; \
-    out.position = vec4f(pos[idx], 0.0, 1.0); \
-    out.uv = uv[idx]; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    let x = u32(in.uv.x * f32(GRID_W)); \
-    let y = u32(in.uv.y * f32(GRID_H)); \
-    let alive = cells[y * GRID_W + x]; \
-    if (alive == 1u) { \
-        let r = f32(x) / f32(GRID_W); \
-        let g = f32(y) / f32(GRID_H); \
-        return vec4f(r * 0.3 + 0.2, g * 0.5 + 0.3, 0.8, 1.0); \
-    } \
-    return vec4f(0.05, 0.05, 0.08, 1.0); \
-}"
+const GRID_W: u32 = 128u;
+const GRID_H: u32 = 128u;
+
+fn getCell(x: i32, y: i32) -> u32 {
+    let wx = ((x % i32(GRID_W)) + i32(GRID_W)) % i32(GRID_W);
+    let wy = ((y % i32(GRID_H)) + i32(GRID_H)) % i32(GRID_H);
+    return cellsIn[u32(wy) * GRID_W + u32(wx)];
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= GRID_W || id.y >= GRID_H) { return; }
+    let x = i32(id.x);
+    let y = i32(id.y);
+    let neighbors = getCell(x-1,y-1) + getCell(x,y-1) + getCell(x+1,y-1)
+                  + getCell(x-1,y)                     + getCell(x+1,y)
+                  + getCell(x-1,y+1) + getCell(x,y+1) + getCell(x+1,y+1);
+    let alive = cellsIn[id.y * GRID_W + id.x];
+    var next: u32 = 0u;
+    if (alive == 1u && (neighbors == 2u || neighbors == 3u)) { next = 1u; }
+    if (alive == 0u && neighbors == 3u) { next = 1u; }
+    cellsOut[id.y * GRID_W + id.x] = next;
+}
+}
+
+def golRenderSource : String := !WGSL{
+@group(0) @binding(0) var<storage, read> cells: array<u32>;
+
+const GRID_W: u32 = 128u;
+const GRID_H: u32 = 128u;
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) uv: vec2f,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var pos = array<vec2f, 6>(
+        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+        vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0) 
+    );
+    var uv = array<vec2f, 6>(
+        vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0),
+        vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(0.0, 0.0) 
+    );
+    var out: VertexOutput;
+    out.position = vec4f(pos[idx], 0.0, 1.0);
+    out.uv = uv[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let x = u32(in.uv.x * f32(GRID_W));
+    let y = u32(in.uv.y * f32(GRID_H));
+    let alive = cells[y * GRID_W + x];
+    if (alive == 1u) {
+        let r = f32(x) / f32(GRID_W);
+        let g = f32(y) / f32(GRID_H);
+        return vec4f(r * 0.3 + 0.2, g * 0.5 + 0.3, 0.8, 1.0);
+    }
+    return vec4f(0.05, 0.05, 0.08, 1.0);
+}
+}
 
 def gridW : Nat := 128
 def gridH : Nat := 128

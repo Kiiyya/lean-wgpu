@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -34,251 +35,253 @@ set_option linter.unusedVariables false
 -- ═══════════════════════════════════════════════════════════════════
 -- Compute shader: ray traces the room scene, writes packed RGBA u32 per pixel
 -- ═══════════════════════════════════════════════════════════════════
-def rtComputeSource : String :=
-"struct Uniforms { \
-    eyeX: f32, eyeY: f32, eyeZ: f32, time: f32, \
-    targetX: f32, targetY: f32, targetZ: f32, _pad: f32, \
-    width: f32, height: f32, _p2: f32, _p3: f32, \
-}; \
- \
-@group(0) @binding(0) var<uniform> u: Uniforms; \
-@group(1) @binding(0) var<storage, read_write> pixels: array<u32>; \
- \
-const INF: f32 = 1e20; \
-const EPS: f32 = 0.001; \
-const MAX_BOUNCES: i32 = 4; \
-const N_SPHERES: i32 = 5; \
- \
-struct Sphere { center: vec3f, radius: f32, color: vec3f, roughness: f32, metallic: f32 }; \
-struct Hit { t: f32, pos: vec3f, nor: vec3f, col: vec3f, roughness: f32, metallic: f32 }; \
- \
-fn getSphere(i: i32) -> Sphere { \
-    var s: Sphere; \
-    switch(i) { \
-        case 0 { s = Sphere(vec3f(-1.8, 1.0, -1.5), 1.0, vec3f(0.95,0.95,0.95), 0.05, 0.95); } \
-        case 1 { s = Sphere(vec3f( 2.0, 0.7,  0.5), 0.7, vec3f(0.85,0.15,0.10), 0.85, 0.05); } \
-        case 2 { s = Sphere(vec3f( 0.0, 0.5,  1.5), 0.5, vec3f(0.10,0.20,0.90), 0.20, 0.30); } \
-        case 3 { s = Sphere(vec3f( 1.5, 1.2, -2.0), 1.2, vec3f(1.00,0.76,0.33), 0.15, 0.90); } \
-        default { s = Sphere(vec3f(-2.5, 0.45, 2.0), 0.45,vec3f(0.90,0.92,0.88), 0.08, 0.65); } \
-    } \
-    return s; \
-} \
- \
-fn hitSphere(ro: vec3f, rd: vec3f, s: Sphere) -> f32 { \
-    let oc = ro - s.center; \
-    let b = dot(oc, rd); \
-    let c = dot(oc, oc) - s.radius * s.radius; \
-    let d = b * b - c; \
-    if (d < 0.0) { return INF; } \
-    let sq = sqrt(d); \
-    let t0 = -b - sq; \
-    if (t0 > EPS) { return t0; } \
-    let t1 = -b + sq; \
-    if (t1 > EPS) { return t1; } \
-    return INF; \
-} \
- \
-fn wallColor(nor: vec3f, pos: vec3f) -> vec3f { \
-    if (nor.y > 0.5) { \
-        let fx = floor(pos.x); let fz = floor(pos.z); \
-        if ((i32(fx) + i32(fz)) % 2 == 0) { return vec3f(0.55,0.35,0.18); } \
-        return vec3f(0.42,0.26,0.12); \
-    } \
-    if (nor.y < -0.5) { return vec3f(0.90,0.88,0.85); } \
-    if (nor.x > 0.5)  { return vec3f(0.75,0.15,0.12); } \
-    if (nor.x < -0.5) { return vec3f(0.12,0.18,0.75); } \
-    if (nor.z > 0.5)  { return vec3f(0.20,0.65,0.25); } \
-    return vec3f(0.70,0.70,0.72); \
-} \
- \
-fn wallProps(nor: vec3f) -> vec2f { \
-    if (nor.y > 0.5) { return vec2f(0.35, 0.05); } \
-    if (nor.y < -0.5) { return vec2f(0.90, 0.00); } \
-    return vec2f(0.80, 0.00); \
-} \
- \
-fn hitRoom(ro: vec3f, rd: vec3f) -> Hit { \
-    var h: Hit; \
-    h.t = INF; \
-    let rMin = vec3f(-4.0, 0.0, -4.0); \
-    let rMax = vec3f( 4.0, 6.0,  4.0); \
-    if (abs(rd.x) > EPS) { \
-        var t = (rMin.x - ro.x) / rd.x; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) { \
-                h.t = t; h.pos = p; h.nor = vec3f(1.0,0.0,0.0); } } \
-        t = (rMax.x - ro.x) / rd.x; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) { \
-                h.t = t; h.pos = p; h.nor = vec3f(-1.0,0.0,0.0); } } \
-    } \
-    if (abs(rd.y) > EPS) { \
-        var t = (rMin.y - ro.y) / rd.y; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) { \
-                h.t = t; h.pos = p; h.nor = vec3f(0.0,1.0,0.0); } } \
-        t = (rMax.y - ro.y) / rd.y; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) { \
-                h.t = t; h.pos = p; h.nor = vec3f(0.0,-1.0,0.0); } } \
-    } \
-    if (abs(rd.z) > EPS) { \
-        var t = (rMin.z - ro.z) / rd.z; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) { \
-                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,1.0); } } \
-        t = (rMax.z - ro.z) / rd.z; \
-        if (t > EPS && t < h.t) { let p = ro + rd * t; \
-            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) { \
-                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,-1.0); } } \
-    } \
-    if (h.t < INF) { \
-        h.col = wallColor(h.nor, h.pos); \
-        let wp = wallProps(h.nor); h.roughness = wp.x; h.metallic = wp.y; \
-    } \
-    return h; \
-} \
- \
-fn traceScene(ro: vec3f, rd: vec3f) -> Hit { \
-    var h: Hit; \
-    h.t = INF; \
-    for (var i: i32 = 0; i < N_SPHERES; i++) { \
-        let s = getSphere(i); \
-        let t = hitSphere(ro, rd, s); \
-        if (t < h.t) { \
-            h.t = t; h.pos = ro + rd * t; \
-            h.nor = normalize(h.pos - s.center); \
-            h.col = s.color; h.roughness = s.roughness; h.metallic = s.metallic; \
-        } \
-    } \
-    let rh = hitRoom(ro, rd); \
-    if (rh.t < h.t) { h = rh; } \
-    return h; \
-} \
- \
-fn shadowTest(p: vec3f, ld: vec3f, maxD: f32) -> f32 { \
-    let o = p + ld * EPS * 2.0; \
-    for (var i: i32 = 0; i < N_SPHERES; i++) { \
-        let t = hitSphere(o, ld, getSphere(i)); \
-        if (t > EPS && t < maxD) { return 0.0; } \
-    } \
-    return 1.0; \
-} \
- \
-fn shade(h: Hit, rd: vec3f) -> vec3f { \
-    let lp = vec3f(0.0, 5.8, 0.0); \
-    let lDir = vec3f(0.0, -1.0, 0.0); \
-    let cosInner = 0.85; \
-    let cosOuter = 0.55; \
-    let lc = vec3f(1.0, 0.95, 0.85); \
-    let toL = lp - h.pos; \
-    let dist = length(toL); \
-    let ld = toL / dist; \
-    let spotCos = dot(-ld, lDir); \
-    let spotFade = clamp((spotCos - cosOuter) / (cosInner - cosOuter), 0.0, 1.0); \
-    let atten = 25.0 / (dist * dist + 1.0) * spotFade; \
-    let sh = shadowTest(h.pos, ld, dist); \
-    let NdotL = max(dot(h.nor, ld), 0.0); \
-    let hv = normalize(ld - rd); \
-    let NdotH = max(dot(h.nor, hv), 0.0); \
-    let r4 = h.roughness * h.roughness * h.roughness * h.roughness; \
-    let specPow = clamp(2.0 / (r4 + 0.001) - 2.0, 1.0, 2048.0); \
-    let spec = pow(NdotH, specPow) * (specPow + 2.0) / 8.0; \
-    let f0 = mix(vec3f(0.04), h.col, h.metallic); \
-    let VdotH = max(dot(-rd, hv), 0.0); \
-    let fresnel = f0 + (vec3f(1.0) - f0) * pow(1.0 - VdotH, 5.0); \
-    let diffCol = h.col * (1.0 - h.metallic); \
-    let ambient = vec3f(0.03, 0.03, 0.04); \
-    return ambient + (diffCol * NdotL + fresnel * spec) * lc * atten * sh; \
-} \
- \
-fn traceRay(ro: vec3f, rd: vec3f) -> vec3f { \
-    var color = vec3f(0.0); \
-    var throughput = vec3f(1.0); \
-    var o = ro; var d = rd; \
-    for (var b: i32 = 0; b < MAX_BOUNCES; b++) { \
-        let h = traceScene(o, d); \
-        if (h.t >= INF) { color += throughput * vec3f(0.01); break; } \
-        let f0 = mix(vec3f(0.04), h.col, h.metallic); \
-        let cosT = max(dot(-d, h.nor), 0.0); \
-        let schlick = f0 + (vec3f(1.0) - f0) * pow(1.0 - cosT, 5.0); \
-        let refl = (schlick.x * 0.33 + schlick.y * 0.33 + schlick.z * 0.34) \
-                 * (1.0 - h.roughness * 0.85); \
-        color += throughput * (1.0 - refl) * shade(h, d); \
-        throughput *= refl; \
-        if (dot(throughput, vec3f(1.0)) < 0.005) { break; } \
-        o = h.pos + h.nor * EPS * 2.0; \
-        d = reflect(d, h.nor); \
-    } \
-    return color; \
-} \
- \
-fn pack(c: vec3f) -> u32 { \
-    let r = u32(clamp(c.x, 0.0, 1.0) * 255.0); \
-    let g = u32(clamp(c.y, 0.0, 1.0) * 255.0); \
-    let b = u32(clamp(c.z, 0.0, 1.0) * 255.0); \
-    return r | (g << 8u) | (b << 16u) | (255u << 24u); \
-} \
- \
-@compute @workgroup_size(8, 8) \
-fn main(@builtin(global_invocation_id) id: vec3<u32>) { \
-    let w = u32(u.width); \
-    let h = u32(u.height); \
-    if (id.x >= w || id.y >= h) { return; } \
-    let uv = vec2f( \
-        (f32(id.x) + 0.5) / u.width * 2.0 - 1.0, \
-        1.0 - (f32(id.y) + 0.5) / u.height * 2.0 \
-    ); \
-    let aspect = u.width / u.height; \
-    let eye = vec3f(u.eyeX, u.eyeY, u.eyeZ); \
-    let lookAt = vec3f(u.targetX, u.targetY, u.targetZ); \
-    let fwd = normalize(lookAt - eye); \
-    let right = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0))); \
-    let up = cross(right, fwd); \
-    let fov = 1.2; \
-    let rd = normalize(fwd + right * uv.x * aspect * fov + up * uv.y * fov); \
-    let color = traceRay(eye, rd); \
-    pixels[id.y * w + id.x] = pack(color); \
-}"
+def rtComputeSource : String := !WGSL{
+struct Uniforms {
+    eyeX: f32, eyeY: f32, eyeZ: f32, time: f32,
+    targetX: f32, targetY: f32, targetZ: f32, _pad: f32,
+    width: f32, height: f32, _p2: f32, _p3: f32,
+};
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(1) @binding(0) var<storage, read_write> pixels: array<u32>;
+
+const INF: f32 = 1e20;
+const EPS: f32 = 0.001;
+const MAX_BOUNCES: i32 = 4;
+const N_SPHERES: i32 = 5;
+
+struct Sphere { center: vec3f, radius: f32, color: vec3f, roughness: f32, metallic: f32 };
+struct Hit { t: f32, pos: vec3f, nor: vec3f, col: vec3f, roughness: f32, metallic: f32 };
+
+fn getSphere(i: i32) -> Sphere {
+    var s: Sphere;
+    switch(i) {
+        case 0 { s = Sphere(vec3f(-1.8, 1.0, -1.5), 1.0, vec3f(0.95,0.95,0.95), 0.05, 0.95); }
+        case 1 { s = Sphere(vec3f( 2.0, 0.7,  0.5), 0.7, vec3f(0.85,0.15,0.10), 0.85, 0.05); }
+        case 2 { s = Sphere(vec3f( 0.0, 0.5,  1.5), 0.5, vec3f(0.10,0.20,0.90), 0.20, 0.30); }
+        case 3 { s = Sphere(vec3f( 1.5, 1.2, -2.0), 1.2, vec3f(1.00,0.76,0.33), 0.15, 0.90); }
+        default { s = Sphere(vec3f(-2.5, 0.45, 2.0), 0.45,vec3f(0.90,0.92,0.88), 0.08, 0.65); }
+    }
+    return s;
+}
+
+fn hitSphere(ro: vec3f, rd: vec3f, s: Sphere) -> f32 {
+    let oc = ro - s.center;
+    let b = dot(oc, rd);
+    let c = dot(oc, oc) - s.radius * s.radius;
+    let d = b * b - c;
+    if (d < 0.0) { return INF; }
+    let sq = sqrt(d);
+    let t0 = -b - sq;
+    if (t0 > EPS) { return t0; }
+    let t1 = -b + sq;
+    if (t1 > EPS) { return t1; }
+    return INF;
+}
+
+fn wallColor(nor: vec3f, pos: vec3f) -> vec3f {
+    if (nor.y > 0.5) {
+        let fx = floor(pos.x); let fz = floor(pos.z);
+        if ((i32(fx) + i32(fz)) % 2 == 0) { return vec3f(0.55,0.35,0.18); }
+        return vec3f(0.42,0.26,0.12);
+    }
+    if (nor.y < -0.5) { return vec3f(0.90,0.88,0.85); }
+    if (nor.x > 0.5)  { return vec3f(0.75,0.15,0.12); }
+    if (nor.x < -0.5) { return vec3f(0.12,0.18,0.75); }
+    if (nor.z > 0.5)  { return vec3f(0.20,0.65,0.25); }
+    return vec3f(0.70,0.70,0.72);
+}
+
+fn wallProps(nor: vec3f) -> vec2f {
+    if (nor.y > 0.5) { return vec2f(0.35, 0.05); }
+    if (nor.y < -0.5) { return vec2f(0.90, 0.00); }
+    return vec2f(0.80, 0.00);
+}
+
+fn hitRoom(ro: vec3f, rd: vec3f) -> Hit {
+    var h: Hit;
+    h.t = INF;
+    let rMin = vec3f(-4.0, 0.0, -4.0);
+    let rMax = vec3f( 4.0, 6.0,  4.0);
+    if (abs(rd.x) > EPS) {
+        var t = (rMin.x - ro.x) / rd.x;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) {
+                h.t = t; h.pos = p; h.nor = vec3f(1.0,0.0,0.0); } }
+        t = (rMax.x - ro.x) / rd.x;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.y >= rMin.y && p.y <= rMax.y && p.z >= rMin.z && p.z <= rMax.z) {
+                h.t = t; h.pos = p; h.nor = vec3f(-1.0,0.0,0.0); } }
+    }
+    if (abs(rd.y) > EPS) {
+        var t = (rMin.y - ro.y) / rd.y;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) {
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,1.0,0.0); } }
+        t = (rMax.y - ro.y) / rd.y;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.x >= rMin.x && p.x <= rMax.x && p.z >= rMin.z && p.z <= rMax.z) {
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,-1.0,0.0); } }
+    }
+    if (abs(rd.z) > EPS) {
+        var t = (rMin.z - ro.z) / rd.z;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) {
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,1.0); } }
+        t = (rMax.z - ro.z) / rd.z;
+        if (t > EPS && t < h.t) { let p = ro + rd * t;
+            if (p.x >= rMin.x && p.x <= rMax.x && p.y >= rMin.y && p.y <= rMax.y) {
+                h.t = t; h.pos = p; h.nor = vec3f(0.0,0.0,-1.0); } }
+    }
+    if (h.t < INF) {
+        h.col = wallColor(h.nor, h.pos);
+        let wp = wallProps(h.nor); h.roughness = wp.x; h.metallic = wp.y;
+    }
+    return h;
+}
+
+fn traceScene(ro: vec3f, rd: vec3f) -> Hit {
+    var h: Hit;
+    h.t = INF;
+    for (var i: i32 = 0; i < N_SPHERES; i++) {
+        let s = getSphere(i);
+        let t = hitSphere(ro, rd, s);
+        if (t < h.t) {
+            h.t = t; h.pos = ro + rd * t;
+            h.nor = normalize(h.pos - s.center);
+            h.col = s.color; h.roughness = s.roughness; h.metallic = s.metallic;
+        }
+    }
+    let rh = hitRoom(ro, rd);
+    if (rh.t < h.t) { h = rh; }
+    return h;
+}
+
+fn shadowTest(p: vec3f, ld: vec3f, maxD: f32) -> f32 {
+    let o = p + ld * EPS * 2.0;
+    for (var i: i32 = 0; i < N_SPHERES; i++) {
+        let t = hitSphere(o, ld, getSphere(i));
+        if (t > EPS && t < maxD) { return 0.0; }
+    }
+    return 1.0;
+}
+
+fn shade(h: Hit, rd: vec3f) -> vec3f {
+    let lp = vec3f(0.0, 5.8, 0.0);
+    let lDir = vec3f(0.0, -1.0, 0.0);
+    let cosInner = 0.85;
+    let cosOuter = 0.55;
+    let lc = vec3f(1.0, 0.95, 0.85);
+    let toL = lp - h.pos;
+    let dist = length(toL);
+    let ld = toL / dist;
+    let spotCos = dot(-ld, lDir);
+    let spotFade = clamp((spotCos - cosOuter) / (cosInner - cosOuter), 0.0, 1.0);
+    let atten = 25.0 / (dist * dist + 1.0) * spotFade;
+    let sh = shadowTest(h.pos, ld, dist);
+    let NdotL = max(dot(h.nor, ld), 0.0);
+    let hv = normalize(ld - rd);
+    let NdotH = max(dot(h.nor, hv), 0.0);
+    let r4 = h.roughness * h.roughness * h.roughness * h.roughness;
+    let specPow = clamp(2.0 / (r4 + 0.001) - 2.0, 1.0, 2048.0);
+    let spec = pow(NdotH, specPow) * (specPow + 2.0) / 8.0;
+    let f0 = mix(vec3f(0.04), h.col, h.metallic);
+    let VdotH = max(dot(-rd, hv), 0.0);
+    let fresnel = f0 + (vec3f(1.0) - f0) * pow(1.0 - VdotH, 5.0);
+    let diffCol = h.col * (1.0 - h.metallic);
+    let ambient = vec3f(0.03, 0.03, 0.04);
+    return ambient + (diffCol * NdotL + fresnel * spec) * lc * atten * sh;
+}
+
+fn traceRay(ro: vec3f, rd: vec3f) -> vec3f {
+    var color = vec3f(0.0);
+    var throughput = vec3f(1.0);
+    var o = ro; var d = rd;
+    for (var b: i32 = 0; b < MAX_BOUNCES; b++) {
+        let h = traceScene(o, d);
+        if (h.t >= INF) { color += throughput * vec3f(0.01); break; }
+        let f0 = mix(vec3f(0.04), h.col, h.metallic);
+        let cosT = max(dot(-d, h.nor), 0.0);
+        let schlick = f0 + (vec3f(1.0) - f0) * pow(1.0 - cosT, 5.0);
+        let refl = (schlick.x * 0.33 + schlick.y * 0.33 + schlick.z * 0.34)
+                 * (1.0 - h.roughness * 0.85);
+        color += throughput * (1.0 - refl) * shade(h, d);
+        throughput *= refl;
+        if (dot(throughput, vec3f(1.0)) < 0.005) { break; }
+        o = h.pos + h.nor * EPS * 2.0;
+        d = reflect(d, h.nor);
+    }
+    return color;
+}
+
+fn pack(c: vec3f) -> u32 {
+    let r = u32(clamp(c.x, 0.0, 1.0) * 255.0);
+    let g = u32(clamp(c.y, 0.0, 1.0) * 255.0);
+    let b = u32(clamp(c.z, 0.0, 1.0) * 255.0);
+    return r | (g << 8u) | (b << 16u) | (255u << 24u);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let w = u32(u.width);
+    let h = u32(u.height);
+    if (id.x >= w || id.y >= h) { return; }
+    let uv = vec2f(
+        (f32(id.x) + 0.5) / u.width * 2.0 - 1.0,
+        1.0 - (f32(id.y) + 0.5) / u.height * 2.0
+    );
+    let aspect = u.width / u.height;
+    let eye = vec3f(u.eyeX, u.eyeY, u.eyeZ);
+    let lookAt = vec3f(u.targetX, u.targetY, u.targetZ);
+    let fwd = normalize(lookAt - eye);
+    let right = normalize(cross(fwd, vec3f(0.0, 1.0, 0.0)));
+    let up = cross(right, fwd);
+    let fov = 1.2;
+    let rd = normalize(fwd + right * uv.x * aspect * fov + up * uv.y * fov);
+    let color = traceRay(eye, rd);
+    pixels[id.y * w + id.x] = pack(color);
+}
+}
 
 -- ═══════════════════════════════════════════════════════════════════
 -- Render shader: fullscreen quad, reads pixel buffer for display
 -- ═══════════════════════════════════════════════════════════════════
-def rtRenderSource : String :=
-"@group(0) @binding(0) var<storage, read> pixels: array<u32>; \
-@group(0) @binding(1) var<uniform> res: vec2f; \
- \
-struct VOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f }; \
- \
-@vertex \
-fn vs_main(@builtin(vertex_index) i: u32) -> VOut { \
-    var p = array<vec2f,6>( \
-        vec2f(-1,-1), vec2f(1,-1), vec2f(1,1), \
-        vec2f(-1,-1), vec2f(1,1),  vec2f(-1,1) \
-    ); \
-    var t = array<vec2f,6>( \
-        vec2f(0,1), vec2f(1,1), vec2f(1,0), \
-        vec2f(0,1), vec2f(1,0), vec2f(0,0) \
-    ); \
-    var o: VOut; \
-    o.pos = vec4f(p[i], 0.0, 1.0); \
-    o.uv = t[i]; \
-    return o; \
-} \
- \
-@fragment \
-fn fs_main(v: VOut) -> @location(0) vec4f { \
-    let w = u32(res.x); let h = u32(res.y); \
-    let x = min(u32(v.uv.x * f32(w)), w - 1u); \
-    let y = min(u32(v.uv.y * f32(h)), h - 1u); \
-    let c = pixels[y * w + x]; \
-    return vec4f( \
-        f32(c & 0xFFu) / 255.0, \
-        f32((c >> 8u) & 0xFFu) / 255.0, \
-        f32((c >> 16u) & 0xFFu) / 255.0, \
-        1.0 \
-    ); \
-}"
+def rtRenderSource : String := !WGSL{
+@group(0) @binding(0) var<storage, read> pixels: array<u32>;
+@group(0) @binding(1) var<uniform> res: vec2f;
+
+struct VOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+
+@vertex
+fn vs_main(@builtin(vertex_index) i: u32) -> VOut {
+    var p = array<vec2f,6>(
+        vec2f(-1,-1), vec2f(1,-1), vec2f(1,1),
+        vec2f(-1,-1), vec2f(1,1),  vec2f(-1,1)
+    );
+    var t = array<vec2f,6>(
+        vec2f(0,1), vec2f(1,1), vec2f(1,0),
+        vec2f(0,1), vec2f(1,0), vec2f(0,0)
+    );
+    var o: VOut;
+    o.pos = vec4f(p[i], 0.0, 1.0);
+    o.uv = t[i];
+    return o;
+}
+
+@fragment
+fn fs_main(v: VOut) -> @location(0) vec4f {
+    let w = u32(res.x); let h = u32(res.y);
+    let x = min(u32(v.uv.x * f32(w)), w - 1u);
+    let y = min(u32(v.uv.y * f32(h)), h - 1u);
+    let c = pixels[y * w + x];
+    return vec4f(
+        f32(c & 0xFFu) / 255.0,
+        f32((c >> 8u) & 0xFFu) / 255.0,
+        f32((c >> 16u) & 0xFFu) / 255.0,
+        1.0
+    );
+}
+}
 
 -- ═══════════════════════════════════════════════════════════════════
 -- Lean host code

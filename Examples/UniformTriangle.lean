@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -13,45 +14,46 @@ set_option linter.unusedVariables false
   queue.writeBufferOffset, configurable pipeline with layout.
 -/
 
-def uniformShaderSource : String :=
-"struct Uniforms { \
-    time: f32, \
-    _pad1: f32, \
-    _pad2: f32, \
-    _pad3: f32, \
-}; \
- \
-@group(0) @binding(0) var<uniform> uniforms: Uniforms; \
- \
-struct VertexInput { \
-    @location(0) position: vec2f, \
-    @location(1) color: vec3f, \
-}; \
- \
-struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) color: vec3f, \
-}; \
- \
-@vertex \
-fn vs_main(in: VertexInput) -> VertexOutput { \
-    let angle = uniforms.time; \
-    let c = cos(angle); \
-    let s = sin(angle); \
-    let rotated = vec2f( \
-        in.position.x * c - in.position.y * s, \
-        in.position.x * s + in.position.y * c  \
-    ); \
-    var out: VertexOutput; \
-    out.position = vec4f(rotated, 0.0, 1.0); \
-    out.color = in.color; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    return vec4f(in.color, 1.0); \
-}"
+def uniformShaderSource : String := !WGSL{
+struct Uniforms {
+    time: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+    @location(0) position: vec2f,
+    @location(1) color: vec3f,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let angle = uniforms.time;
+    let c = cos(angle);
+    let s = sin(angle);
+    let rotated = vec2f(
+        in.position.x * c - in.position.y * s,
+        in.position.x * s + in.position.y * c 
+    );
+    var out: VertexOutput;
+    out.position = vec4f(rotated, 0.0, 1.0);
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return vec4f(in.color, 1.0);
+}
+}
 
 def uniformTriangle : IO Unit := do
   eprintln "=== Uniform Triangle (Animated Rotation) ==="

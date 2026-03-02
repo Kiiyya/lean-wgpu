@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -18,33 +19,34 @@ set_option linter.unusedVariables false
   The shape slowly rotates. Press ESC/Q to quit.
 -/
 
-def stencilShaderCode : String :=
-"struct Uniforms { angle: f32, scale: f32, aspect: f32, _pad: f32 }; \
-@group(0) @binding(0) var<uniform> u: Uniforms; \
-struct VertexOutput { @builtin(position) position: vec4f }; \
-@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput { \
-    let N = 6u; \
-    let tri = idx / 3u; \
-    let vert = idx % 3u; \
-    var p: vec2f; \
-    if (vert == 0u) { \
-        p = vec2f(0.0, 0.0); \
-    } else { \
-        let vi = tri + vert - 1u; \
-        let a_base = f32(vi) * 6.28318530 / f32(N); \
-        p = vec2f(cos(a_base), sin(a_base)); \
-    } \
-    p = p * u.scale; \
-    let ca = cos(u.angle); let sa = sin(u.angle); \
-    p = vec2f(p.x*ca - p.y*sa, p.x*sa + p.y*ca); \
-    p.x = p.x / u.aspect; \
-    var out: VertexOutput; \
-    out.position = vec4f(p, 0.5, 1.0); \
-    return out; \
-} \
-struct FragUniforms { color: vec4f }; \
-@group(0) @binding(1) var<uniform> frag_u: FragUniforms; \
-@fragment fn fs_main() -> @location(0) vec4f { return frag_u.color; }"
+def stencilShaderCode : String := !WGSL{
+struct Uniforms { angle: f32, scale: f32, aspect: f32, _pad: f32 };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct VertexOutput { @builtin(position) position: vec4f };
+@vertex fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    let N = 6u;
+    let tri = idx / 3u;
+    let vert = idx % 3u;
+    var p: vec2f;
+    if (vert == 0u) {
+        p = vec2f(0.0, 0.0);
+    } else {
+        let vi = tri + vert - 1u;
+        let a_base = f32(vi) * 6.28318530 / f32(N);
+        p = vec2f(cos(a_base), sin(a_base));
+    }
+    p = p * u.scale;
+    let ca = cos(u.angle); let sa = sin(u.angle);
+    p = vec2f(p.x*ca - p.y*sa, p.x*sa + p.y*ca);
+    p.x = p.x / u.aspect;
+    var out: VertexOutput;
+    out.position = vec4f(p, 0.5, 1.0);
+    return out;
+}
+struct FragUniforms { color: vec4f };
+@group(0) @binding(1) var<uniform> frag_u: FragUniforms;
+@fragment fn fs_main() -> @location(0) vec4f { return frag_u.color; }
+}
 
 def stencilOutline : IO Unit := do
   eprintln "=== StencilOutline (stencil-based outline rendering) ==="

@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -13,31 +14,32 @@ set_option linter.unusedVariables false
   RenderPipelineDescriptor.mkFullLayouts with 2 buffer layouts, draw with instanceCount > 1.
 -/
 
-def instanceShaderSource : String :=
-"struct VertexInput { \
-    @location(0) position: vec2f, \
-    @location(1) color: vec3f, \
-    @location(2) offset: vec2f, \
-    @location(3) scale: f32, \
-}; \
- \
-struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) color: vec3f, \
-}; \
- \
-@vertex \
-fn vs_main(in: VertexInput) -> VertexOutput { \
-    var out: VertexOutput; \
-    out.position = vec4f(in.position * in.scale + in.offset, 0.0, 1.0); \
-    out.color = in.color; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    return vec4f(in.color, 1.0); \
-}"
+def instanceShaderSource : String := !WGSL{
+struct VertexInput {
+    @location(0) position: vec2f,
+    @location(1) color: vec3f,
+    @location(2) offset: vec2f,
+    @location(3) scale: f32,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = vec4f(in.position * in.scale + in.offset, 0.0, 1.0);
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return vec4f(in.color, 1.0);
+}
+}
 
 -- Generate a grid of instances with varying colors
 def mkInstanceData (rows cols : Nat) : Array Float := Id.run do

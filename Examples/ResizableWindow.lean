@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -13,34 +14,35 @@ set_option linter.unusedVariables false
   framebuffer size change, SurfaceConfiguration.mkWith.
 -/
 
-def resizeShaderSource : String :=
-"struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) color: vec3f, \
-}; \
- \
-@vertex \
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput { \
-    var positions = array<vec2f, 3>( \
-        vec2f( 0.0,  0.6), \
-        vec2f(-0.5, -0.4), \
-        vec2f( 0.5, -0.4)  \
-    ); \
-    var colors = array<vec3f, 3>( \
-        vec3f(1.0, 0.4, 0.4), \
-        vec3f(0.4, 1.0, 0.4), \
-        vec3f(0.4, 0.4, 1.0)  \
-    ); \
-    var out: VertexOutput; \
-    out.position = vec4f(positions[idx], 0.0, 1.0); \
-    out.color = colors[idx]; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    return vec4f(in.color, 1.0); \
-}"
+def resizeShaderSource : String := !WGSL{
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var positions = array<vec2f, 3>(
+        vec2f( 0.0,  0.6),
+        vec2f(-0.5, -0.4),
+        vec2f( 0.5, -0.4) 
+    );
+    var colors = array<vec3f, 3>(
+        vec3f(1.0, 0.4, 0.4),
+        vec3f(0.4, 1.0, 0.4),
+        vec3f(0.4, 0.4, 1.0) 
+    );
+    var out: VertexOutput;
+    out.position = vec4f(positions[idx], 0.0, 1.0);
+    out.color = colors[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return vec4f(in.color, 1.0);
+}
+}
 
 def resizableWindow : IO Unit := do
   eprintln "=== Resizable Window (Dynamic Surface Reconfiguration) ==="

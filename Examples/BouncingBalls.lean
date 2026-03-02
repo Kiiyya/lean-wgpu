@@ -1,6 +1,7 @@
 import Wgpu
 import Wgpu.Async
 import Glfw
+import Wgsl.Syntax
 
 open IO
 open Wgpu
@@ -14,46 +15,47 @@ set_option linter.unusedVariables false
   (for circle approximation), and keyboard interactivity (Space to add balls).
 -/
 
-def ballShaderSource : String :=
-"struct Uniforms { \
-    screenSize: vec2f, \
-    _pad: vec2f, \
-}; \
- \
-@group(0) @binding(0) var<uniform> uniforms: Uniforms; \
- \
-struct VertexInput { \
-    @location(0) localPos: vec2f, \
-    @location(1) center: vec2f, \
-    @location(2) radius: f32, \
-    @location(3) color: vec3f, \
-}; \
- \
-struct VertexOutput { \
-    @builtin(position) position: vec4f, \
-    @location(0) color: vec3f, \
-    @location(1) localUV: vec2f, \
-}; \
- \
-@vertex \
-fn vs_main(in: VertexInput) -> VertexOutput { \
-    let worldPos = in.center + in.localPos * in.radius; \
-    let ndc = worldPos / uniforms.screenSize * 2.0 - 1.0; \
-    var out: VertexOutput; \
-    out.position = vec4f(ndc.x, -ndc.y, 0.0, 1.0); \
-    out.color = in.color; \
-    out.localUV = in.localPos; \
-    return out; \
-} \
- \
-@fragment \
-fn fs_main(in: VertexOutput) -> @location(0) vec4f { \
-    let dist = length(in.localUV); \
-    if (dist > 1.0) { discard; } \
-    let edge = smoothstep(0.9, 1.0, dist); \
-    let brightness = 1.0 - edge * 0.5; \
-    return vec4f(in.color * brightness, 1.0); \
-}"
+def ballShaderSource : String := !WGSL{
+struct Uniforms {
+    screenSize: vec2f,
+    _pad: vec2f,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+    @location(0) localPos: vec2f,
+    @location(1) center: vec2f,
+    @location(2) radius: f32,
+    @location(3) color: vec3f,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+    @location(1) localUV: vec2f,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let worldPos = in.center + in.localPos * in.radius;
+    let ndc = worldPos / uniforms.screenSize * 2.0 - 1.0;
+    var out: VertexOutput;
+    out.position = vec4f(ndc.x, -ndc.y, 0.0, 1.0);
+    out.color = in.color;
+    out.localUV = in.localPos;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let dist = length(in.localUV);
+    if (dist > 1.0) { discard; }
+    let edge = smoothstep(0.9, 1.0, dist);
+    let brightness = 1.0 - edge * 0.5;
+    return vec4f(in.color * brightness, 1.0);
+}
+}
 
 -- Circle mesh: a triangle fan as triangle list (N triangles)
 def mkCircleVertices (segments : Nat) : Array Float := Id.run do
